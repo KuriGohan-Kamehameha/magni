@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Magni" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/retro_shell</item>
+        <item name="colorPrimary">@color/retro_orange</item>
+        <item name="colorSecondary">@color/retro_toolbar</item>
+        <item name="android:fontFamily">monospace</item>
+    </style>
+</resources>
