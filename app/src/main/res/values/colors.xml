@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="retro_shell">#D9DBDF</color>
+    <color name="retro_inner">#F8F9F4</color>
+    <color name="retro_toolbar">#C8CDD5</color>
+    <color name="retro_button">#ECEFF3</color>
+    <color name="retro_button_pressed">#BCC4D0</color>
+    <color name="retro_button_stroke">#627287</color>
+    <color name="retro_orange">#EF8B2F</color>
+    <color name="retro_orange_soft">#44EF8B2F</color>
+    <color name="retro_text">#1F2B39</color>
+    <color name="retro_muted">#4F5D6D</color>
+    <color name="retro_progress_track">#A8B1BE</color>
+    <color name="retro_map_grid">#DCE2EA</color>
+    <color name="retro_map_empty">#EEF2F7</color>
+</resources>

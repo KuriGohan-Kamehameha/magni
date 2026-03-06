@@ -1,0 +1,378 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/retro_shell"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="10dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/overview_surface"
+            android:padding="10dp"
+            android:text="@string/settings_title"
+            android:textColor="@color/retro_text"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/overview_surface"
+            android:orientation="vertical"
+            android:padding="10dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_section_behavior"
+                android:textColor="@color/retro_text"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/settings_theme"
+                android:textColor="@color/retro_muted"
+                android:textSize="11sp" />
+
+            <Spinner
+                android:id="@+id/themeSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="40dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/settings_accent_color"
+                android:textColor="@color/retro_muted"
+                android:textSize="11sp" />
+
+            <Spinner
+                android:id="@+id/accentSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="40dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/settings_search_engine"
+                android:textColor="@color/retro_muted"
+                android:textSize="11sp" />
+
+            <Spinner
+                android:id="@+id/searchEngineSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="40dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/settings_homepage"
+                android:textColor="@color/retro_muted"
+                android:textSize="11sp" />
+
+            <EditText
+                android:id="@+id/homepageEdit"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:background="@drawable/retro_button_normal"
+                android:hint="@string/settings_homepage_hint"
+                android:inputType="textUri"
+                android:paddingHorizontal="10dp"
+                android:singleLine="true"
+                android:textColor="@color/retro_text"
+                android:textColorHint="@color/retro_muted"
+                android:textSize="12sp" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/jsSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/settings_js"
+                android:textColor="@color/retro_text" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/desktopSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_desktop_mode"
+                android:textColor="@color/retro_text" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/imagesSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_load_images"
+                android:textColor="@color/retro_text" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/openLinksInNewTabSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_open_links_new_tab"
+                android:textColor="@color/retro_text" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/privateModeSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_private_mode"
+                android:textColor="@color/retro_text" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/blockAllCookiesSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_block_all_cookies"
+                android:textColor="@color/retro_text" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/doNotTrackSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_do_not_track"
+                android:textColor="@color/retro_text" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/blockTrackersSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_block_trackers"
+                android:textColor="@color/retro_text" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/settings_section_privacy_shield"
+                android:textColor="@color/retro_text"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/stripTrackingParamsSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_strip_tracking_params"
+                android:textColor="@color/retro_text" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="@string/settings_strip_tracking_params_hint"
+                android:textColor="@color/retro_muted"
+                android:textSize="10sp" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/httpsOnlyModeSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_https_only_mode"
+                android:textColor="@color/retro_text" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="@string/settings_https_only_mode_hint"
+                android:textColor="@color/retro_muted"
+                android:textSize="10sp" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/clearDataOnExitSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_clear_data_on_exit"
+                android:textColor="@color/retro_text" />
+
+            <Button
+                android:id="@+id/clearBrowsingDataNowButton"
+                android:layout_width="match_parent"
+                android:layout_height="36dp"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/retro_button_background"
+                android:text="@string/settings_clear_browsing_data_now"
+                android:textColor="@color/retro_text"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/overview_surface"
+            android:orientation="vertical"
+            android:padding="10dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/settings_section_history"
+                    android:textColor="@color/retro_text"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/clearHistoryButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:background="@drawable/retro_button_background"
+                    android:paddingHorizontal="8dp"
+                    android:text="@string/settings_clear_history"
+                    android:textColor="@color/retro_text"
+                    android:textSize="10sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/historyCountText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textColor="@color/retro_muted"
+                android:textSize="10sp" />
+
+            <EditText
+                android:id="@+id/historySearchEdit"
+                android:layout_width="match_parent"
+                android:layout_height="36dp"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/retro_button_normal"
+                android:hint="@string/settings_history_filter_hint"
+                android:inputType="text"
+                android:paddingHorizontal="10dp"
+                android:singleLine="true"
+                android:textColor="@color/retro_text"
+                android:textColorHint="@color/retro_muted"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/emptyHistoryText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/settings_no_history"
+                android:textColor="@color/retro_muted"
+                android:textSize="11sp" />
+
+            <LinearLayout
+                android:id="@+id/historyContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="vertical" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/overview_surface"
+            android:orientation="vertical"
+            android:padding="10dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/settings_section_bookmarks"
+                    android:textColor="@color/retro_text"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/clearBookmarksButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:background="@drawable/retro_button_background"
+                    android:paddingHorizontal="8dp"
+                    android:text="@string/settings_clear_bookmarks"
+                    android:textColor="@color/retro_text"
+                    android:textSize="10sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/bookmarksCountText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textColor="@color/retro_muted"
+                android:textSize="10sp" />
+
+            <EditText
+                android:id="@+id/bookmarksSearchEdit"
+                android:layout_width="match_parent"
+                android:layout_height="36dp"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/retro_button_normal"
+                android:hint="@string/settings_bookmarks_filter_hint"
+                android:inputType="text"
+                android:paddingHorizontal="10dp"
+                android:singleLine="true"
+                android:textColor="@color/retro_text"
+                android:textColorHint="@color/retro_muted"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/emptyBookmarksText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/settings_no_bookmarks"
+                android:textColor="@color/retro_muted"
+                android:textSize="11sp" />
+
+            <LinearLayout
+                android:id="@+id/bookmarksContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="vertical" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/saveButton"
+                style="@style/RetroToolbarButton"
+                android:layout_marginEnd="5dp"
+                android:text="@string/settings_save" />
+
+            <Button
+                android:id="@+id/closeButton"
+                style="@style/RetroToolbarButton"
+                android:text="@string/settings_close" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

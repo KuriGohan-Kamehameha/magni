@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.Magni" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/retro_shell</item>
+        <item name="colorPrimary">@color/retro_orange</item>
+        <item name="colorSecondary">@color/retro_toolbar</item>
+        <item name="android:fontFamily">monospace</item>
+    </style>
+
+    <style name="RetroToolbarButton">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">40dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:background">@drawable/retro_button_background</item>
+        <item name="android:textColor">@color/retro_text</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:padding">0dp</item>
+    </style>
+
+    <style name="RetroToolbarCompactButton">
+        <item name="android:layout_width">58dp</item>
+        <item name="android:layout_height">40dp</item>
+        <item name="android:background">@drawable/retro_button_background</item>
+        <item name="android:textColor">@color/retro_text</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:padding">0dp</item>
+    </style>
+
+</resources>
