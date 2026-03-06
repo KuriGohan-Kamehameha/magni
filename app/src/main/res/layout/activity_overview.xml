@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/retro_shell"
+    android:orientation="vertical"
+    android:paddingHorizontal="8dp"
+    android:paddingVertical="0dp">
+
+    <FrameLayout
+        android:id="@+id/overviewMapContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="@drawable/overview_surface">
+
+        <com.ayn.magni.ui.OverviewMapView
+            android:id="@+id/overviewMap"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@android:color/transparent"
+            android:padding="6dp" />
+
+        <LinearLayout
+            android:id="@+id/overviewTopBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/overview_surface"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="8dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/titleText"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="@string/browser_title_default"
+                android:textColor="@color/retro_text"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/metaText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/retro_muted"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/zoomText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="@string/overview_zoom_default"
+                android:textColor="@color/retro_muted"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/overviewResetButton"
+                android:layout_width="54dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/retro_button_background"
+                android:fontFamily="monospace"
+                android:padding="0dp"
+                android:text="@string/button_zoom_reset"
+                android:textColor="@color/retro_text"
+                android:textSize="10sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/overviewSettingsButton"
+                android:layout_width="64dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/retro_button_background"
+                android:fontFamily="monospace"
+                android:padding="0dp"
+                android:text="@string/button_settings"
+                android:textColor="@color/retro_text"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+    </FrameLayout>
+
+</LinearLayout>

@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/retro_shell">
+
+    <FrameLayout
+        android:id="@+id/webContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/retro_inner" />
+
+    <ProgressBar
+        android:id="@+id/loadProgress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="4dp"
+        android:layout_gravity="top"
+        android:indeterminate="false"
+        android:max="100"
+        android:progressBackgroundTint="@color/retro_progress_track"
+        android:progressTint="@color/retro_orange" />
+
+    <TextView
+        android:id="@+id/tabInfoText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="8dp"
+        android:background="@drawable/retro_button_normal"
+        android:paddingHorizontal="7dp"
+        android:paddingVertical="3dp"
+        android:textColor="@color/retro_text"
+        android:textSize="10sp" />
+
+    <View
+        android:id="@+id/toolbarHandle"
+        android:layout_width="72dp"
+        android:layout_height="16dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="8dp"
+        android:background="@drawable/toolbar_handle_background"
+        android:clickable="true"
+        android:contentDescription="@string/toolbar_handle_description"
+        android:focusable="true" />
+
+    <LinearLayout
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="88dp"
+        android:layout_gravity="bottom"
+        android:background="@color/retro_toolbar"
+        android:orientation="vertical"
+        android:paddingStart="5dp"
+        android:paddingTop="5dp"
+        android:paddingEnd="5dp"
+        android:paddingBottom="5dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/backButton"
+                style="@style/RetroToolbarButton"
+                android:layout_marginEnd="3dp"
+                android:text="@string/button_back" />
+
+            <Button
+                android:id="@+id/forwardButton"
+                style="@style/RetroToolbarButton"
+                android:layout_marginEnd="3dp"
+                android:text="@string/button_forward" />
+
+            <Button
+                android:id="@+id/reloadButton"
+                style="@style/RetroToolbarButton"
+                android:layout_marginEnd="3dp"
+                android:text="@string/button_reload" />
+
+            <Button
+                android:id="@+id/urlButton"
+                style="@style/RetroToolbarButton"
+                android:layout_marginEnd="3dp"
+                android:text="@string/button_url" />
+
+            <Button
+                android:id="@+id/homeButton"
+                style="@style/RetroToolbarButton"
+                android:text="@string/button_home" />
+        </LinearLayout>
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="4dp"
+            android:layout_weight="1"
+            android:fillViewport="true"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/tabsButton"
+                    style="@style/RetroToolbarCompactButton"
+                    android:layout_marginEnd="3dp"
+                    android:text="@string/button_tabs" />
+
+                <Button
+                    android:id="@+id/newTabButton"
+                    style="@style/RetroToolbarCompactButton"
+                    android:layout_marginEnd="3dp"
+                    android:text="@string/button_new_tab" />
+
+                <Button
+                    android:id="@+id/settingsButton"
+                    style="@style/RetroToolbarCompactButton"
+                    android:layout_marginEnd="3dp"
+                    android:text="@string/button_settings" />
+
+                <Button
+                    android:id="@+id/downloadsButton"
+                    style="@style/RetroToolbarCompactButton"
+                    android:layout_marginEnd="3dp"
+                    android:text="@string/button_downloads" />
+
+                <Button
+                    android:id="@+id/desktopButton"
+                    style="@style/RetroToolbarCompactButton"
+                    android:layout_marginEnd="3dp"
+                    android:text="@string/button_desktop" />
+
+                <Button
+                    android:id="@+id/readerButton"
+                    style="@style/RetroToolbarCompactButton"
+                    android:layout_marginEnd="3dp"
+                    android:text="@string/button_reader" />
+
+                <Button
+                    android:id="@+id/zoomOutButton"
+                    style="@style/RetroToolbarCompactButton"
+                    android:layout_marginEnd="3dp"
+                    android:text="@string/button_zoom_out" />
+
+                <Button
+                    android:id="@+id/zoomInButton"
+                    style="@style/RetroToolbarCompactButton"
+                    android:text="@string/button_zoom_in" />
+            </LinearLayout>
+        </HorizontalScrollView>
+    </LinearLayout>
+
+</FrameLayout>
