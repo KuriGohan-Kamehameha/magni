@@ -1,4 +1,4 @@
-<p align="center"><img src="magni.png" alt="Magni logo" /></p>
+<p align="left"><img src="magni.png" alt="Magni logo" /></p>
 
 # Magni - Web Browser for AYN Thor
 
