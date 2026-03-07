@@ -15,6 +15,7 @@ object BrowserHistoryStore {
     private const val PREFS_NAME = "browser_prefs"
     private const val KEY_HISTORY = "history_items"
     private const val MAX_ENTRIES = 250
+    private val historyAccessLock = Any()
 
     fun list(context: Context): List<HistoryEntry> {
         val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -36,7 +37,8 @@ object BrowserHistoryStore {
             }
 
             entries += HistoryEntry(
-                id = item.optLong("id", 0L),
+                id = item.optLong("id", 0L).takeIf { it > 0L }
+                    ?: generateEntryId(item.optLong("visitedAt", 0L), url),
                 title = item.optString("title", "").trim(),
                 url = url,
                 visitedAt = item.optLong("visitedAt", 0L)
@@ -47,33 +49,41 @@ object BrowserHistoryStore {
     }
 
     fun add(context: Context, title: String, url: String, visitedAt: Long = System.currentTimeMillis()) {
-        val safeUrl = BrowserSettingsStore.sanitizedNavigableUrl(url) ?: return
-        if (safeUrl.startsWith("about:blank") ||
-            safeUrl.startsWith(BrowserSettingsStore.BUILTIN_HOME)
-        ) {
-            return
-        }
+        return synchronized(historyAccessLock) {
+            val safeUrl = BrowserSettingsStore.sanitizedNavigableUrl(url) ?: return
+            if (safeUrl.startsWith("about:blank") ||
+                safeUrl.startsWith(BrowserSettingsStore.BUILTIN_HOME)
+            ) {
+                return
+            }
 
-        val merged = list(context)
-            .filterNot { it.url == safeUrl }
-            .toMutableList()
+            val merged = list(context)
+                .filterNot { it.url == safeUrl }
+                .toMutableList()
 
-        merged.add(
-            0,
-            HistoryEntry(
-                id = visitedAt,
-                title = title.ifBlank { safeUrl },
-                url = safeUrl,
-                visitedAt = visitedAt
+            merged.add(
+                0,
+                HistoryEntry(
+                    id = generateEntryId(visitedAt, safeUrl),
+                    title = title.ifBlank { safeUrl }.take(140),
+                    url = safeUrl,
+                    visitedAt = visitedAt
+                )
             )
-        )
 
-        save(context, merged.take(MAX_ENTRIES))
+            save(context, merged.take(MAX_ENTRIES))
+        }
     }
 
     fun remove(context: Context, id: Long) {
-        val updated = list(context).filterNot { it.id == id }
-        save(context, updated)
+        return synchronized(historyAccessLock) {
+            val updated = list(context).toMutableList()
+            val index = updated.indexOfFirst { it.id == id }
+            if (index >= 0) {
+                updated.removeAt(index)
+                save(context, updated)
+            }
+        }
     }
 
     fun clear(context: Context) {
@@ -99,5 +109,13 @@ object BrowserHistoryStore {
             .edit()
             .putString(KEY_HISTORY, output.toString())
             .apply()
+    }
+
+    private fun generateEntryId(timestamp: Long, url: String): Long {
+        val safeTimestamp = timestamp.coerceAtLeast(1L)
+        // Use a combination of timestamp and URL hash to reduce collisions
+        val urlHash = url.hashCode().toLong() and 0xFFFFFFFFL
+        val combined = safeTimestamp xor urlHash
+        return (combined and Long.MAX_VALUE).takeIf { it != 0L } ?: safeTimestamp
     }
 }

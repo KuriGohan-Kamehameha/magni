@@ -20,7 +20,9 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.ayn.magni.data.BrowserSettingsStore
 import com.ayn.magni.data.DisplayRoleStore
 import com.ayn.magni.data.ThemeMode
@@ -64,7 +66,12 @@ class OverviewActivity : AppCompatActivity() {
         }
 
         binding.overviewSettingsButton.setOnClickListener {
-            startActivity(Intent(this, SettingsActivity::class.java))
+            if (isFinishing || isDestroyed) {
+                return@setOnClickListener
+            }
+            runCatching {
+                startActivity(Intent(this, SettingsActivity::class.java))
+            }
         }
         applyOverviewTopBarVisibility()
         configureBackHandling()
@@ -93,6 +100,9 @@ class OverviewActivity : AppCompatActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BUTTON_X && (event?.repeatCount ?: 0) > 0) {
+            return true
+        }
         if (keyCode == KeyEvent.KEYCODE_BUTTON_X) {
             swapScreenRoles()
             return true
@@ -102,23 +112,30 @@ class OverviewActivity : AppCompatActivity() {
 
     private fun collectBrowserState() {
         lifecycleScope.launch {
-            BrowserSyncBus.state.collect { state ->
-                renderState(state)
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                BrowserSyncBus.state.collect { state ->
+                    renderState(state)
+                }
             }
         }
     }
 
     private fun collectCommands() {
         lifecycleScope.launch {
-            BrowserSyncBus.commands.collect { command ->
-                if (command is BrowserCommand.SetChromeVisible) {
-                    setOverviewTopBarVisible(command.visible)
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                BrowserSyncBus.commands.collect { command ->
+                    if (command is BrowserCommand.SetChromeVisible) {
+                        setOverviewTopBarVisible(command.visible)
+                    }
                 }
             }
         }
     }
 
     private fun renderState(state: BrowserUiState) {
+        if (isFinishing || isDestroyed) {
+            return
+        }
         browserCanGoBack = state.canGoBack
         setOverviewTopBarVisible(state.chromeControlsVisible)
         val defaultTitle = state.title.ifBlank { getString(R.string.browser_title_default) }
@@ -280,6 +297,9 @@ class OverviewActivity : AppCompatActivity() {
     }
 
     private fun launchZoomActivity(swapAnimation: ScreenSwapAnimation? = null) {
+        if (isFinishing || isDestroyed) {
+            return
+        }
         val intent = Intent(this, ZoomActivity::class.java)
         val secondaryDisplayId = findSecondaryDisplayId(Display.DEFAULT_DISPLAY)
         val wantsZoomOnTop = DisplayRoleStore.isZoomOnTop(this)
@@ -322,6 +342,9 @@ class OverviewActivity : AppCompatActivity() {
     }
 
     private fun alignDisplaysAndLaunchZoomIfNeeded(swapAnimation: ScreenSwapAnimation? = null) {
+        if (isFinishing || isDestroyed) {
+            return
+        }
         val secondaryDisplayId = findSecondaryDisplayId(Display.DEFAULT_DISPLAY)
         val wantsZoomOnTop = DisplayRoleStore.isZoomOnTop(this)
         val canSwap = secondaryDisplayId != null
@@ -442,6 +465,9 @@ class OverviewActivity : AppCompatActivity() {
 
     private fun shortUrl(url: String): String {
         val cleaned = url.removePrefix("https://").removePrefix("http://")
+        if (cleaned.isBlank()) {
+            return "about:blank"
+        }
         return if (cleaned.length > 30) {
             cleaned.take(27) + "..."
         } else {
@@ -451,6 +477,13 @@ class OverviewActivity : AppCompatActivity() {
 
     private fun isBuiltinHomeUrl(url: String): Boolean {
         return url.startsWith(BrowserSettingsStore.BUILTIN_HOME, ignoreCase = true)
+    }
+
+    override fun onDestroy() {
+        // Cleanup listeners to prevent memory leaks
+        binding.overviewMap.onPositionRequested = null
+        binding.overviewMap.onOverviewZoomChanged = null
+        super.onDestroy()
     }
 
     companion object {

@@ -18,6 +18,8 @@ data class BrowserSession(
 object BrowserSessionStore {
     private const val PREFS_NAME = "browser_prefs"
     private const val KEY_SESSION = "tab_session"
+    private const val MAX_SESSION_TABS = 10
+    private const val MAX_TITLE_LENGTH = 140
 
     fun load(context: Context): BrowserSession? {
         val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -32,17 +34,24 @@ object BrowserSessionStore {
 
         val tabsArray = objectValue.optJSONArray("tabs") ?: JSONArray()
         val tabs = mutableListOf<SessionTab>()
+        val seenUrls = HashSet<String>()
         for (index in 0 until tabsArray.length()) {
             val item = tabsArray.optJSONObject(index) ?: continue
             val url = item.optString("url").trim()
             if (url.isBlank()) {
                 continue
             }
+            if (!seenUrls.add(url)) {
+                continue
+            }
             tabs += SessionTab(
                 url = url,
-                title = item.optString("title", "").trim(),
+                title = item.optString("title", "").trim().take(MAX_TITLE_LENGTH),
                 pinned = item.optBoolean("pinned", false)
             )
+            if (tabs.size >= MAX_SESSION_TABS) {
+                break
+            }
         }
 
         if (tabs.isEmpty()) {
@@ -54,14 +63,20 @@ object BrowserSessionStore {
     }
 
     fun save(context: Context, tabs: List<SessionTab>, currentIndex: Int) {
+        val seenUrls = HashSet<String>()
         val sanitizedTabs = tabs.mapNotNull { tab ->
             val normalizedUrl = tab.url.trim()
             if (normalizedUrl.isBlank()) {
                 null
+            } else if (!seenUrls.add(normalizedUrl)) {
+                null
             } else {
-                tab.copy(url = normalizedUrl)
+                tab.copy(
+                    url = normalizedUrl,
+                    title = tab.title.trim().take(MAX_TITLE_LENGTH)
+                )
             }
-        }
+        }.take(MAX_SESSION_TABS)
 
         if (sanitizedTabs.isEmpty()) {
             clear(context)
