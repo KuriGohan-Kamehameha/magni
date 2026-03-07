@@ -137,7 +137,10 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         binding.clearHistoryButton.setOnClickListener {
-            MaterialAlertDialogBuilder(this)
+            if (isFinishing || isDestroyed) {
+                return@setOnClickListener
+            }
+            val dialog = MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.settings_clear_history)
                 .setMessage(R.string.settings_clear_history_confirm)
                 .setPositiveButton(R.string.settings_clear_history) { _, _ ->
@@ -145,11 +148,15 @@ class SettingsActivity : AppCompatActivity() {
                     renderHistory()
                 }
                 .setNegativeButton(R.string.url_dialog_cancel, null)
-                .show()
+                .create()
+            runCatching { dialog.show() }
         }
 
         binding.clearBookmarksButton.setOnClickListener {
-            MaterialAlertDialogBuilder(this)
+            if (isFinishing || isDestroyed) {
+                return@setOnClickListener
+            }
+            val dialog = MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.settings_clear_bookmarks)
                 .setMessage(R.string.settings_clear_bookmarks_confirm)
                 .setPositiveButton(R.string.settings_clear_bookmarks) { _, _ ->
@@ -157,11 +164,15 @@ class SettingsActivity : AppCompatActivity() {
                     renderBookmarks()
                 }
                 .setNegativeButton(R.string.url_dialog_cancel, null)
-                .show()
+                .create()
+            runCatching { dialog.show() }
         }
 
         binding.clearBrowsingDataNowButton.setOnClickListener {
-            MaterialAlertDialogBuilder(this)
+            if (isFinishing || isDestroyed) {
+                return@setOnClickListener
+            }
+            val dialog = MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.settings_clear_browsing_data_now)
                 .setMessage(R.string.settings_clear_browsing_data_confirm)
                 .setPositiveButton(R.string.settings_clear_browsing_data_now) { _, _ ->
@@ -169,7 +180,8 @@ class SettingsActivity : AppCompatActivity() {
                     finishWithResult(openUrl = null, clearBrowsingDataNow = true)
                 }
                 .setNegativeButton(R.string.url_dialog_cancel, null)
-                .show()
+                .create()
+            runCatching { dialog.show() }
         }
     }
 
@@ -186,6 +198,9 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun renderHistory() {
+        if (isFinishing || isDestroyed) {
+            return
+        }
         val entries = BrowserHistoryStore.list(this).take(40)
         val filtered = if (historyFilterQuery.isBlank()) {
             entries
@@ -216,11 +231,17 @@ class SettingsActivity : AppCompatActivity() {
             itemBinding.timeText.text = dateFormatter.format(Date(entry.visitedAt))
 
             itemBinding.openButton.setOnClickListener {
+                if (isFinishing || isDestroyed) {
+                    return@setOnClickListener
+                }
                 savePreferences()
                 finishWithResult(entry.url)
             }
 
             itemBinding.deleteButton.setOnClickListener {
+                if (isFinishing || isDestroyed) {
+                    return@setOnClickListener
+                }
                 BrowserHistoryStore.remove(this, entry.id)
                 renderHistory()
             }
@@ -237,6 +258,9 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun renderBookmarks() {
+        if (isFinishing || isDestroyed) {
+            return
+        }
         val entries = BrowserBookmarkStore.list(this).take(80)
         val filtered = if (bookmarksFilterQuery.isBlank()) {
             entries
@@ -273,11 +297,17 @@ class SettingsActivity : AppCompatActivity() {
             }
 
             itemBinding.openButton.setOnClickListener {
+                if (isFinishing || isDestroyed) {
+                    return@setOnClickListener
+                }
                 savePreferences()
                 finishWithResult(entry.url)
             }
 
             itemBinding.favoriteButton.setOnClickListener {
+                if (isFinishing || isDestroyed) {
+                    return@setOnClickListener
+                }
                 BrowserBookmarkStore.upsert(
                     context = this,
                     title = entry.title.ifBlank { entry.url },
@@ -288,6 +318,9 @@ class SettingsActivity : AppCompatActivity() {
             }
 
             itemBinding.deleteButton.setOnClickListener {
+                if (isFinishing || isDestroyed) {
+                    return@setOnClickListener
+                }
                 BrowserBookmarkStore.remove(this, entry.id)
                 renderBookmarks()
             }
@@ -484,11 +517,20 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun copyUrlToClipboard(url: String) {
         val clipboard = getSystemService(ClipboardManager::class.java) ?: return
-        clipboard.setPrimaryClip(ClipData.newPlainText("url", url))
+        val copied = runCatching {
+            clipboard.setPrimaryClip(ClipData.newPlainText("url", url))
+        }.isSuccess
+        if (!copied) {
+            Toast.makeText(this, R.string.url_copy_unavailable_toast, Toast.LENGTH_SHORT).show()
+            return
+        }
         Toast.makeText(this, R.string.settings_link_copied_toast, Toast.LENGTH_SHORT).show()
     }
 
     private fun finishWithResult(openUrl: String?, clearBrowsingDataNow: Boolean = false) {
+        if (isFinishing || isDestroyed) {
+            return
+        }
         val data = Intent().apply {
             putExtra(EXTRA_SETTINGS_CHANGED, true)
             if (!openUrl.isNullOrBlank()) {
