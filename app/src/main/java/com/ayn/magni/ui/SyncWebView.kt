@@ -17,7 +17,7 @@ class SyncWebView @JvmOverloads constructor(
         onScrollChangedListener?.invoke()
     }
 
-    fun pageContentWidth(): Int = computeHorizontalScrollRange()
+    fun pageContentWidth(): Int = computeHorizontalScrollRange().coerceAtLeast(1)
 
-    fun pageContentHeight(): Int = computeVerticalScrollRange()
+    fun pageContentHeight(): Int = computeVerticalScrollRange().coerceAtLeast(1)
 }

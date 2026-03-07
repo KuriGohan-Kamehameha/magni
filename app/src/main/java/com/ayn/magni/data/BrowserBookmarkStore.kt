@@ -16,6 +16,7 @@ object BrowserBookmarkStore {
     private const val PREFS_NAME = "browser_prefs"
     private const val KEY_BOOKMARKS = "bookmark_items"
     private const val MAX_ENTRIES = 500
+    private val bookmarkAccessLock = Any()
 
     fun list(context: Context): List<BookmarkEntry> {
         val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -38,7 +39,8 @@ object BrowserBookmarkStore {
             }
 
             entries += BookmarkEntry(
-                id = item.optLong("id", 0L),
+                id = item.optLong("id", 0L).takeIf { it > 0L }
+                    ?: generateBookmarkId(item.optLong("addedAt", 0L), url),
                 title = item.optString("title", "").trim(),
                 url = url,
                 addedAt = item.optLong("addedAt", 0L),
@@ -65,47 +67,62 @@ object BrowserBookmarkStore {
         url: String,
         favoriteOverride: Boolean? = null
     ): BookmarkEntry? {
-        val target = sanitizeBookmarkUrl(url) ?: return null
-        val now = System.currentTimeMillis()
-        val existing = findByUrl(context, target)
-        val resolvedTitle = title.ifBlank {
-            existing?.title?.ifBlank { target } ?: target
-        }
+        return synchronized(bookmarkAccessLock) {
+            val target = sanitizeBookmarkUrl(url) ?: return null
+            val now = System.currentTimeMillis()
+            val existing = findByUrl(context, target)
+            val resolvedTitle = title.ifBlank {
+                existing?.title?.ifBlank { target } ?: target
+            }
 
-        val updated = if (existing == null) {
-            BookmarkEntry(
-                id = now,
-                title = resolvedTitle,
-                url = target,
-                addedAt = now,
-                favorite = favoriteOverride ?: false
-            )
-        } else {
-            existing.copy(
-                title = resolvedTitle,
-                favorite = favoriteOverride ?: existing.favorite
-            )
-        }
+            val updated = if (existing == null) {
+                BookmarkEntry(
+                    id = generateBookmarkId(now, target),
+                    title = resolvedTitle,
+                    url = target,
+                    addedAt = now,
+                    favorite = favoriteOverride ?: false
+                )
+            } else {
+                existing.copy(
+                    title = resolvedTitle,
+                    favorite = favoriteOverride ?: existing.favorite
+                )
+            }
 
-        val merged = list(context)
-            .filterNot { it.url == target }
-            .toMutableList()
-        merged.add(0, updated)
-        save(context, merged.take(MAX_ENTRIES))
-        return updated
+            val merged = list(context)
+                .filterNot { it.url == target }
+                .toMutableList()
+            merged.add(0, updated)
+            save(context, merged.take(MAX_ENTRIES))
+            updated
+        }
     }
 
     fun toggleFavorite(context: Context, title: String, url: String): Boolean {
-        val target = sanitizeBookmarkUrl(url) ?: return false
-        val existing = findByUrl(context, target)
-        val nextFavorite = existing?.favorite?.not() ?: true
-        upsert(context, title = title, url = target, favoriteOverride = nextFavorite)
-        return nextFavorite
+        return synchronized(bookmarkAccessLock) {
+            val target = sanitizeBookmarkUrl(url) ?: return false
+            val existing = findByUrl(context, target) ?: return false
+            val nextFavorite = !existing.favorite
+            val updated = existing.copy(favorite = nextFavorite)
+            val merged = list(context)
+                .filterNot { it.url == target }
+                .toMutableList()
+            merged.add(0, updated)
+            save(context, merged.take(MAX_ENTRIES))
+            nextFavorite
+        }
     }
 
     fun remove(context: Context, id: Long) {
-        val updated = list(context).filterNot { it.id == id }
-        save(context, updated)
+        synchronized(bookmarkAccessLock) {
+            val updated = list(context).toMutableList()
+            val index = updated.indexOfFirst { it.id == id }
+            if (index >= 0) {
+                updated.removeAt(index)
+                save(context, updated)
+            }
+        }
     }
 
     fun clear(context: Context) {
@@ -142,5 +159,11 @@ object BrowserBookmarkStore {
             return null
         }
         return BrowserSettingsStore.sanitizedNavigableUrl(trimmed)
+    }
+
+    private fun generateBookmarkId(timestamp: Long, url: String): Long {
+        val safeTimestamp = timestamp.coerceAtLeast(1L)
+        val urlHash = url.hashCode().toLong() and 0xFFFFFFFFL
+        return ((safeTimestamp shl 16) xor (urlHash and 0xFFFFL)) and Long.MAX_VALUE
     }
 }

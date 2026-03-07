@@ -71,7 +71,11 @@ object BrowserSyncBus {
     }
 
     fun updateSnapshot(snapshot: Bitmap?, pageWidth: Int, pageHeight: Int) {
-        snapshotRef.set(snapshot)
+        val safeSnapshot = if (snapshot?.isRecycled == true) null else snapshot
+        val previous = snapshotRef.getAndSet(safeSnapshot)
+        if (previous != null && previous !== safeSnapshot && !previous.isRecycled) {
+            runCatching { previous.recycle() }
+        }
         stateFlow.update {
             it.copy(
                 snapshotVersion = it.snapshotVersion + 1,
@@ -83,7 +87,11 @@ object BrowserSyncBus {
 
     fun latestSnapshot(): Bitmap? {
         val snapshot = snapshotRef.get()
-        return if (snapshot?.isRecycled == true) null else snapshot
+        if (snapshot?.isRecycled == true) {
+            snapshotRef.compareAndSet(snapshot, null)
+            return null
+        }
+        return snapshot
     }
 
     fun sendCommand(command: BrowserCommand) {
