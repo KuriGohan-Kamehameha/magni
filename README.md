@@ -1,3 +1,5 @@
+<p align="center"><img src="magni.png" alt="Magni logo" /></p>
+
 # Magni - Web Browser for AYN Thor
 
 Magni is a privacy-first Android web browser designed for the AYN Thor dual-screen handheld. It reimagines web browsing with a nostalgic Nintendo DSi/3DS-inspired dual-screen interface.
