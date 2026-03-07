@@ -37,6 +37,19 @@ Magni is a privacy-first Android web browser designed for the AYN Thor dual-scre
 
 ## Installation
 
+### Via Obtainium (Recommended)
+
+[Obtainium](https://github.com/ImranR98/Obtainium) lets you install and update Magni directly from GitHub Releases, with automatic update notifications.
+
+1. Install [Obtainium](https://github.com/ImranR98/Obtainium) on your Android device.
+2. Open Obtainium and tap **Add App**.
+3. Enter the repository URL:
+   ```
+   https://github.com/KuriGohan-Kamehameha/magni
+   ```
+4. Tap **Add** — Obtainium will find the latest release APK and install it.
+5. Future updates are detected automatically whenever a new release is published.
+
 ### From Source
 
 1. **Clone the repository**:
