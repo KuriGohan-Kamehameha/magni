@@ -41,8 +41,8 @@ Magni is a privacy-first Android web browser designed for the AYN Thor dual-scre
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/yourusername/ds-browser.git
-   cd ds-browser
+   git clone https://github.com/KuriGohan-Kamehameha/magni.git
+   cd magni
    ```
 
 2. **Open in Android Studio**:
