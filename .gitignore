@@ -49,3 +49,4 @@ keystore.properties
 *.p12
 *.pem
 local.properties
+.claude/
