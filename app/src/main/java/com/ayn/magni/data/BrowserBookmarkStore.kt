@@ -16,12 +16,21 @@ object BrowserBookmarkStore {
     private const val PREFS_NAME = "browser_prefs"
     private const val KEY_BOOKMARKS = "bookmark_items"
     private const val MAX_ENTRIES = 500
+    // NASA standard: explicit bounds constants
+    private const val MAX_URL_LENGTH = 2048
+    private const val MAX_TITLE_LENGTH = 256
+    private const val MAX_JSON_PARSE_ITERATIONS = 600
     private val bookmarkAccessLock = Any()
 
     fun list(context: Context): List<BookmarkEntry> {
         val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getString(KEY_BOOKMARKS, "[]")
             .orEmpty()
+
+        // NASA standard: validate input length before parsing
+        if (raw.length > 2_000_000) {
+            return emptyList()
+        }
 
         val array = try {
             JSONArray(raw)
@@ -30,9 +39,15 @@ object BrowserBookmarkStore {
         }
 
         val entries = mutableListOf<BookmarkEntry>()
-        for (index in 0 until array.length()) {
+        // NASA standard: fixed loop bounds
+        val maxIterations = minOf(array.length(), MAX_JSON_PARSE_ITERATIONS)
+        for (index in 0 until maxIterations) {
             val item = array.optJSONObject(index) ?: continue
             val rawUrl = item.optString("url")
+            // NASA standard: strict input validation
+            if (rawUrl.length > MAX_URL_LENGTH) {
+                continue
+            }
             val url = sanitizeBookmarkUrl(rawUrl) ?: continue
             if (url.isBlank()) {
                 continue
@@ -41,9 +56,9 @@ object BrowserBookmarkStore {
             entries += BookmarkEntry(
                 id = item.optLong("id", 0L).takeIf { it > 0L }
                     ?: generateBookmarkId(item.optLong("addedAt", 0L), url),
-                title = item.optString("title", "").trim(),
+                title = item.optString("title", "").trim().take(MAX_TITLE_LENGTH),
                 url = url,
-                addedAt = item.optLong("addedAt", 0L),
+                addedAt = item.optLong("addedAt", 0L).coerceAtLeast(0L),
                 favorite = item.optBoolean("favorite", false)
             )
         }
@@ -133,22 +148,25 @@ object BrowserBookmarkStore {
     }
 
     private fun save(context: Context, items: List<BookmarkEntry>) {
+        // NASA standard: validate list bounds before processing
+        val safeItems = items.take(MAX_ENTRIES)
         val output = JSONArray()
-        items.forEach { entry ->
+        safeItems.forEach { entry ->
             output.put(
                 JSONObject()
                     .put("id", entry.id)
-                    .put("title", entry.title)
-                    .put("url", entry.url)
+                    .put("title", entry.title.take(MAX_TITLE_LENGTH))
+                    .put("url", entry.url.take(MAX_URL_LENGTH))
                     .put("addedAt", entry.addedAt)
                     .put("favorite", entry.favorite)
             )
         }
 
+        // NASA standard: use commit() for atomic writes to ensure data integrity
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_BOOKMARKS, output.toString())
-            .apply()
+            .commit()
     }
 
     private fun sanitizeBookmarkUrl(raw: String): String? {

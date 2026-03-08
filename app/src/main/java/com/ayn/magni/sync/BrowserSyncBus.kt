@@ -2,6 +2,9 @@ package com.ayn.magni.sync
 
 import android.graphics.Bitmap
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.locks.ReentrantReadWriteLock
+import kotlin.concurrent.read
+import kotlin.concurrent.write
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -10,6 +13,10 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
+/**
+ * Thread-safe synchronization bus for browser state.
+ * NASA standard: explicit thread-safety and defensive null handling.
+ */
 object BrowserSyncBus {
     private val stateFlow = MutableStateFlow(BrowserUiState())
     private val commandsFlow = MutableSharedFlow<BrowserCommand>(
@@ -17,7 +24,10 @@ object BrowserSyncBus {
         extraBufferCapacity = 48,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
-    private val snapshotRef = AtomicReference<Bitmap?>(null)
+    
+    // NASA standard: use explicit locking for bitmap operations to prevent race conditions
+    private val snapshotLock = ReentrantReadWriteLock()
+    private var currentSnapshot: Bitmap? = null
 
     val state: StateFlow<BrowserUiState> = stateFlow.asStateFlow()
     val commands = commandsFlow.asSharedFlow()
@@ -71,27 +81,38 @@ object BrowserSyncBus {
     }
 
     fun updateSnapshot(snapshot: Bitmap?, pageWidth: Int, pageHeight: Int) {
+        // NASA standard: validate inputs and handle thread-safety properly
+        val safePageWidth = pageWidth.coerceAtLeast(1)
+        val safePageHeight = pageHeight.coerceAtLeast(1)
         val safeSnapshot = if (snapshot?.isRecycled == true) null else snapshot
-        val previous = snapshotRef.getAndSet(safeSnapshot)
-        if (previous != null && previous !== safeSnapshot && !previous.isRecycled) {
-            runCatching { previous.recycle() }
+        
+        snapshotLock.write {
+            val previous = currentSnapshot
+            currentSnapshot = safeSnapshot
+            // Only recycle if the bitmap is different and not recycled
+            if (previous != null && previous !== safeSnapshot && !previous.isRecycled) {
+                runCatching { previous.recycle() }
+            }
         }
+        
         stateFlow.update {
             it.copy(
                 snapshotVersion = it.snapshotVersion + 1,
-                snapshotPageWidth = pageWidth.coerceAtLeast(1),
-                snapshotPageHeight = pageHeight.coerceAtLeast(1)
+                snapshotPageWidth = safePageWidth,
+                snapshotPageHeight = safePageHeight
             )
         }
     }
 
     fun latestSnapshot(): Bitmap? {
-        val snapshot = snapshotRef.get()
-        if (snapshot?.isRecycled == true) {
-            snapshotRef.compareAndSet(snapshot, null)
-            return null
+        return snapshotLock.read {
+            val snapshot = currentSnapshot
+            if (snapshot?.isRecycled == true) {
+                null
+            } else {
+                snapshot
+            }
         }
-        return snapshot
     }
 
     fun sendCommand(command: BrowserCommand) {

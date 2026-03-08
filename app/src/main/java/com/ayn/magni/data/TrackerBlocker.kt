@@ -54,7 +54,28 @@ object TrackerBlocker {
         "twitter.com",
         "x.com",
         "yahoo.com",
-        "yandex.ru"
+        "yandex.ru",
+        // Additional high-priority trackers
+        "adobe.com",
+        "omniture.com",
+        "2o7.net",
+        "amplitude.com",
+        "heapanalytics.com",
+        "bugsnag.com",
+        "rollbar.com",
+        "mouseflow.com",
+        "luckyorange.com",
+        "crazyegg.com",
+        "clarity.ms",
+        "zdassets.com",
+        "zendesk.com",
+        "drift.com",
+        "hubspot.com",
+        "hs-analytics.net",
+        "braze.com",
+        "leanplum.com",
+        "urbanairship.com",
+        "airship.com"
     )
 
     private val multiPartSuffixes = setOf(
@@ -87,8 +108,14 @@ object TrackerBlocker {
     }
 
     private fun isKnownTracker(host: String): Boolean {
+        if (host.isBlank() || host.length > MAX_HOST_LENGTH) {
+            return false
+        }
         var candidate = host
-        while (true) {
+        // NASA standard: fixed loop bounds to prevent potential infinite loops
+        var iterations = 0
+        while (iterations < MAX_SUBDOMAIN_DEPTH) {
+            iterations++
             if (candidate in trackerDomains) {
                 return true
             }
@@ -98,7 +125,12 @@ object TrackerBlocker {
             }
             candidate = candidate.substring(nextDot + 1)
         }
+        return false
     }
+
+    // NASA standard: explicit constants for bounds
+    private const val MAX_HOST_LENGTH = 253
+    private const val MAX_SUBDOMAIN_DEPTH = 127
 
     private fun parseHost(url: String?): String? {
         if (url.isNullOrBlank()) {
