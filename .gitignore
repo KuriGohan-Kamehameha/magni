@@ -48,3 +48,4 @@ keystore.properties
 # Signing configs
 *.p12
 *.pem
+local.properties

@@ -154,6 +154,7 @@ class ZoomActivity : AppCompatActivity() {
     private var defaultMobileUserAgent: String = ""
     private var reusableSnapshotBitmap: Bitmap? = null
     private var lastSnapshotCaptureAtMs: Long = 0L
+    private var lastValidViewport: BrowserViewport? = null
     private var pendingSessionSnapshot: List<SessionTab>? = null
     private var pendingSessionIndex: Int = 0
     private var isUrlBarVisible: Boolean = false
@@ -1103,6 +1104,8 @@ class ZoomActivity : AppCompatActivity() {
         binding.loadProgress.isVisible = progress in 1..99
         updateReloadButtonState()
 
+        // Reset viewport cache when switching tabs for fresh state
+        lastValidViewport = null
         publishBrowserState()
         scheduleCapture(100)
         updateTabIndicator()
@@ -1290,13 +1293,16 @@ class ZoomActivity : AppCompatActivity() {
     private fun buildWebView(): SyncWebView {
         val webView = SyncWebView(this)
         webView.setBackgroundColor(pageBackgroundColor(currentPreferences))
+        
+        // Enable hardware acceleration for better rendering performance
+        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
         applyWebSettings(webView, currentPreferences)
 
         webView.onScrollChangedListener = {
             if (webView === currentWebView()) {
                 publishBrowserState()
-                scheduleCapture(220)
+                scheduleCapture(250)
             }
         }
 
@@ -1488,6 +1494,8 @@ class ZoomActivity : AppCompatActivity() {
                     binding.loadProgress.progress = 0
                     binding.loadProgress.isVisible = true
                     updateReloadButtonState()
+                    // Reset viewport cache when page starts loading
+                    lastValidViewport = null
                     publishBrowserState()
                     updateTabIndicator()
                     updateReaderButtonState()
@@ -1521,7 +1529,7 @@ class ZoomActivity : AppCompatActivity() {
 
                 if (view === currentWebView()) {
                     publishBrowserState()
-                    scheduleCapture(80)
+                    scheduleCapture(120)
                     updateTabIndicator()
                     updateReaderButtonState()
                 }
@@ -1530,7 +1538,7 @@ class ZoomActivity : AppCompatActivity() {
             override fun onScaleChanged(view: WebView?, oldScale: Float, newScale: Float) {
                 if (view === currentWebView()) {
                     publishBrowserState()
-                    scheduleCapture(60)
+                    scheduleCapture(100)
                 }
             }
 
@@ -1889,6 +1897,7 @@ class ZoomActivity : AppCompatActivity() {
     }
 
     private fun applyWebSettings(webView: SyncWebView, prefs: BrowserPreferences) {
+        @Suppress("DEPRECATION")
         with(webView.settings) {
             javaScriptEnabled = prefs.javascriptEnabled
             domStorageEnabled = true
@@ -1921,6 +1930,14 @@ class ZoomActivity : AppCompatActivity() {
                 DESKTOP_USER_AGENT
             } else {
                 defaultMobileUserAgent
+            }
+            
+            // Performance optimizations
+            setRenderPriority(WebSettings.RenderPriority.HIGH)
+            
+            // Enable offscreen pre-rasterization for smoother scrolling
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                offscreenPreRaster = true
             }
         }
 
@@ -2210,14 +2227,38 @@ class ZoomActivity : AppCompatActivity() {
         val maxScrollX = (pageWidth - viewportWidth).coerceAtLeast(0)
         val maxScrollY = (pageHeight - viewportHeight).coerceAtLeast(0)
 
+        val rawScrollX = web.scrollX
+        val rawScrollY = web.scrollY
+
+        // Validate scroll position to prevent erroneous jumps to (0,0)
+        // when WebView scroll values are temporarily unstable
+        val lastViewport = lastValidViewport
+        val scrollX: Int
+        val scrollY: Int
+        
+        if (lastViewport != null && 
+            rawScrollX == 0 && rawScrollY == 0 &&
+            lastViewport.scrollX > 50 && lastViewport.scrollY > 50 &&
+            web.url?.startsWith("about:") != true) {
+            // Likely an erroneous jump to origin - use last known position
+            scrollX = lastViewport.scrollX.coerceIn(0, maxScrollX)
+            scrollY = lastViewport.scrollY.coerceIn(0, maxScrollY)
+        } else {
+            scrollX = rawScrollX.coerceIn(0, maxScrollX)
+            scrollY = rawScrollY.coerceIn(0, maxScrollY)
+        }
+
         val viewport = BrowserViewport(
             pageWidth = pageWidth,
             pageHeight = pageHeight,
-            scrollX = web.scrollX.coerceIn(0, maxScrollX),
-            scrollY = web.scrollY.coerceIn(0, maxScrollY),
+            scrollX = scrollX,
+            scrollY = scrollY,
             viewportWidth = viewportWidth,
             viewportHeight = viewportHeight
         )
+
+        // Cache this as the last valid viewport
+        lastValidViewport = viewport
 
         BrowserSyncBus.updateViewport(viewport)
         BrowserSyncBus.updateNavigation(
@@ -3046,7 +3087,7 @@ class ZoomActivity : AppCompatActivity() {
         private const val DOWNLOAD_SPAM_WINDOW_MS = 10_000L
         private const val MAX_DOWNLOAD_ATTEMPTS_PER_WINDOW = 3
         private const val MAX_BOOKMARK_DIALOG_ITEMS = 40
-        private const val SNAPSHOT_MIN_CAPTURE_INTERVAL_MS = 180L
+        private const val SNAPSHOT_MIN_CAPTURE_INTERVAL_MS = 200L
         private const val SESSION_PERSIST_DEBOUNCE_MS = 280L
         private const val SNAPSHOT_MAX_EDGE_PX = 12_000
         private const val TOOLBAR_PULL_THRESHOLD_DP = 18f
@@ -3066,10 +3107,10 @@ class ZoomActivity : AppCompatActivity() {
         private const val TAB_NEW_TAB_OUTGOING_END_ALPHA = 0.8f
         private const val TAB_NEW_TAB_OUTGOING_END_SCALE = 0.992f
         private val SNAPSHOT_PIXEL_BUDGETS = doubleArrayOf(
-            36_000_000.0,
-            24_000_000.0,
-            16_000_000.0,
-            10_000_000.0
+            32_000_000.0,
+            20_000_000.0,
+            12_000_000.0,
+            8_000_000.0
         )
         private val tabEnterInterpolator = DecelerateInterpolator(1.4f)
         private val tabExitInterpolator = AccelerateInterpolator(1.15f)
