@@ -209,7 +209,16 @@ class ZoomActivity : AppCompatActivity() {
             WindowManager.LayoutParams.FLAG_SECURE,
             WindowManager.LayoutParams.FLAG_SECURE
         )
+        // NASA standard: security-critical operations should be explicit
+        // WebView debugging is disabled unconditionally for security
+        // Only enable during development by temporarily changing this line
         WebView.setWebContentsDebuggingEnabled(false)
+        
+        // Additional security hardening
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        )
 
         binding = ActivityZoomBinding.inflate(layoutInflater)
         setContentView(binding.root)

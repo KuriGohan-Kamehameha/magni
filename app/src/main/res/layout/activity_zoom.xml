@@ -16,6 +16,7 @@
         android:layout_width="match_parent"
         android:layout_height="4dp"
         android:layout_gravity="top"
+        android:contentDescription="@string/accessibility_progress_bar"
         android:indeterminate="false"
         android:max="100"
         android:progressBackgroundTint="@color/retro_progress_track"
@@ -29,6 +30,7 @@
         android:layout_marginTop="8dp"
         android:layout_marginEnd="8dp"
         android:background="@drawable/retro_button_normal"
+        android:contentDescription="@string/accessibility_tab_info"
         android:paddingHorizontal="7dp"
         android:paddingVertical="3dp"
         android:textColor="@color/retro_text"
@@ -67,29 +69,34 @@
                 android:id="@+id/backButton"
                 style="@style/RetroToolbarButton"
                 android:layout_marginEnd="3dp"
+                android:contentDescription="@string/accessibility_back_button"
                 android:text="@string/button_back" />
 
             <Button
                 android:id="@+id/forwardButton"
                 style="@style/RetroToolbarButton"
                 android:layout_marginEnd="3dp"
+                android:contentDescription="@string/accessibility_forward_button"
                 android:text="@string/button_forward" />
 
             <Button
                 android:id="@+id/reloadButton"
                 style="@style/RetroToolbarButton"
                 android:layout_marginEnd="3dp"
+                android:contentDescription="@string/accessibility_reload_button"
                 android:text="@string/button_reload" />
 
             <Button
                 android:id="@+id/urlButton"
                 style="@style/RetroToolbarButton"
                 android:layout_marginEnd="3dp"
+                android:contentDescription="@string/accessibility_url_button"
                 android:text="@string/button_url" />
 
             <Button
                 android:id="@+id/homeButton"
                 style="@style/RetroToolbarButton"
+                android:contentDescription="@string/accessibility_home_button"
                 android:text="@string/button_home" />
         </LinearLayout>
 
@@ -110,47 +117,55 @@
                     android:id="@+id/tabsButton"
                     style="@style/RetroToolbarCompactButton"
                     android:layout_marginEnd="3dp"
+                    android:contentDescription="@string/accessibility_tabs_button"
                     android:text="@string/button_tabs" />
 
                 <Button
                     android:id="@+id/newTabButton"
                     style="@style/RetroToolbarCompactButton"
                     android:layout_marginEnd="3dp"
+                    android:contentDescription="@string/accessibility_new_tab_button"
                     android:text="@string/button_new_tab" />
 
                 <Button
                     android:id="@+id/settingsButton"
                     style="@style/RetroToolbarCompactButton"
                     android:layout_marginEnd="3dp"
+                    android:contentDescription="@string/accessibility_settings_button"
                     android:text="@string/button_settings" />
 
                 <Button
                     android:id="@+id/downloadsButton"
                     style="@style/RetroToolbarCompactButton"
                     android:layout_marginEnd="3dp"
+                    android:contentDescription="@string/accessibility_downloads_button"
                     android:text="@string/button_downloads" />
 
                 <Button
                     android:id="@+id/desktopButton"
                     style="@style/RetroToolbarCompactButton"
                     android:layout_marginEnd="3dp"
+                    android:contentDescription="@string/accessibility_desktop_button"
                     android:text="@string/button_desktop" />
 
                 <Button
                     android:id="@+id/readerButton"
                     style="@style/RetroToolbarCompactButton"
                     android:layout_marginEnd="3dp"
+                    android:contentDescription="@string/accessibility_reader_button"
                     android:text="@string/button_reader" />
 
                 <Button
                     android:id="@+id/zoomOutButton"
                     style="@style/RetroToolbarCompactButton"
                     android:layout_marginEnd="3dp"
+                    android:contentDescription="@string/accessibility_zoom_out_button"
                     android:text="@string/button_zoom_out" />
 
                 <Button
                     android:id="@+id/zoomInButton"
                     style="@style/RetroToolbarCompactButton"
+                    android:contentDescription="@string/accessibility_zoom_in_button"
                     android:text="@string/button_zoom_in" />
             </LinearLayout>
         </HorizontalScrollView>
