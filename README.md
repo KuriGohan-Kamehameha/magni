@@ -1,152 +1,185 @@
+# Magni – Privacy‑first Dual‑Screen Web Browser for AYN Thor
 
+[![Build Status](https://github.com/KuriGohan-Kamehameha/magni/actions/workflows/ci.yml/badge.svg)](https://github.com/KuriGohan-Kamehameha/magni/actions)
+[![Release](https://img.shields.io/github/v/release/KuriGohan-Kamehameha/magni)](https://github.com/KuriGohan-Kamehameha/magni/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-# Magni - Web Browser for AYN Thor
-<p align="left"><img src="magni.png" alt="Magni logo" /></p>
-Magni is a privacy-first Android web browser designed for the AYN Thor dual-screen handheld. It reimagines web browsing with a nostalgic Nintendo DSi/3DS-inspired dual-screen interface.
+<p align="left"><img src="magni.png" alt="Magni logo" width="200"/></p>
+
+Magni is a lightweight, open‑source Android web browser built around the dual‑screen
+AYN Thor handheld. It recreates the nostalgic Nintendo DSi/3DS browsing experience while
+living up to modern privacy and security expectations. When a second display isn’t
+available it automatically falls back to a fully usable single‑screen layout.
+
+## Table of Contents
+1. [Features](#features)
+2. [Requirements](#requirements)
+3. [Installation](#installation)
+4. [Configuration](#configuration)
+5. [Usage](#usage)
+6. [Project Structure](#project-structure)
+7. [Technical Details](#technical-details)
+8. [Privacy Notes](#privacy-notes)
+9. [Architecture](#architecture)
+10. [Contributing](#contributing)
+11. [License](#license)
+12. [Acknowledgments](#acknowledgments)
 
 ## Features
 
-### Innovative Dual-Screen Interface
-- **Top Screen**: Full-page overview mini-map with interactive viewport box showing the visible area
-- **Bottom Screen**: Interactive WebView with intuitive zoom controls and retro buttons
-- Seamless viewport synchronization between screens
+### Dual‑Screen Experience
+- Top screen shows a full‑page overview mini‑map with an interactive viewport rectangle.
+- Bottom screen hosts a fully interactive WebView; pinch or hardware keys control zoom.
+- Real‑time synchronization – dragging or pinching on either screen pans/zooms both.
+- Secondary display detection via `ActivityOptions.setLaunchDisplayId`; automatically
+  falls back to single‑screen.
 
-### Privacy & Security
-- **HTTPS-Only**: HTTP disabled and cleartext traffic blocked by default
-- **Tracker Blocking**: Comprehensive list of known third-party tracker domains filtered at request time
-- **Cookie Control**: Fine-grained control over first-party and third-party cookies
-- **Private Mode**: Optional incognito browsing with isolated session cleanup
-- **Permission Denial**: Geolocation and media permissions blocked by default
-- **Secure Rendering**: Window FLAG_SECURE enabled to prevent OS-level screenshots
-- **Anti-Abuse**: Protection against JS spam, rate-limited downloads, popup blocking, and render-process recovery
+### Retro‑Inspired Controls & Themes
+- Hardware keys mapped to **BACK**, **FORWARD**, **RELOAD**, **URL**, **HOME**, zoom in/out.
+- Long‑press URL key copies current address to clipboard.
+- Custom start page with user‑selectable themes.
+- Includes **DSi Classic** preset for authentic Nintendo DSi color scheme.
 
-### Retro Controls
-- `BACK` / `FWD`: Navigate history
-- `RELOAD`: Refresh page
-- `URL`: Open address/search dialog (long-press to copy)
-- `HOME`: Load retro start page with custom themes
-- `-` / `+`: Zoom in and out
+### Privacy & Security First
+- HTTPS‑only by default; cleartext blocked with network security config.
+- Third‑party tracker domains blocked at request time.
+- Fine‑grained cookie controls (allow first‑party, block third‑party, or block all).
+- Optional private (incognito) mode with automatic cleanup.
+- Geolocation, camera/microphone, and other sensitive permissions denied by default.
+- `FLAG_SECURE` prevents screenshots/recordings at the OS level.
+- Anti‑abuse protections: JS spam throttling, download rate limiting, popup blocking,
+  and render‑process crash recovery.
 
-### Themes
-- Includes "DSi Classic" preset with authentic Nintendo DSi-inspired chrome colors and themed home page
+### Browsing Essentials
+- Bookmark and history management with search/clear functions.
+- Downloads with privacy‑respecting defaults and throttling.
+- Simple URL/home navigation and customizable home page.
+- Responsive behaviour on both single‑ and dual‑screen devices.
+
+### Developer & Power‑User Features
+- Kotlin codebase targeting AndroidX; minimal third‑party dependencies.
+- ProGuard minification in release builds for privacy logic and size reduction.
+- GitHub Actions CI for building and publishing releases.
+- Small APK footprint; zero telemetry or analytics.
 
 ## Requirements
 
-- **Android SDK**: API 26 or higher
-- **Java**: Version 17 or later
-- **Gradle**: 8.0 or higher (included with Android Studio)
-- **Hardware**: AYN Thor device recommended (app adapts to single-screen if needed)
+- Android **8.0 (API 26)** or higher (target API 35).
+- Java **17+** (bundled with Android Studio).
+- Gradle **8.0+** (wrapper included).
+- AYN Thor dual‑screen hardware recommended; single screen support is built in.
 
 ## Installation
 
-### Via Obtainium (Recommended)
+### 🚀 Via Obtainium (Recommended)
 
-[Obtainium](https://github.com/ImranR98/Obtainium) lets you install and update Magni directly from GitHub Releases, with automatic update notifications.
-
-1. Install [Obtainium](https://github.com/ImranR98/Obtainium) on your Android device.
+1. Install [Obtainium](https://github.com/ImranR98/Obtainium) on your device.
 2. Open Obtainium and tap **Add App**.
 3. Enter the repository URL:
    ```
    https://github.com/KuriGohan-Kamehameha/magni
    ```
-4. Tap **Add** — Obtainium will find the latest release APK and install it.
-5. Future updates are detected automatically whenever a new release is published.
+4. Tap **Add** — Obtainium will fetch the latest APK and install it.
+5. Updates are automatically detected when new GitHub releases are published.
 
-### From Source
+### 🛠 Building from Source
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/KuriGohan-Kamehameha/magni.git
-   cd magni
-   ```
+```bash
+git clone https://github.com/KuriGohan-Kamehameha/magni.git
+cd magni
+# open the directory in Android Studio and let Gradle sync
 
-2. **Open in Android Studio**:
-   - Open the project folder in Android Studio
-   - Let Gradle sync automatically
+# debug build + install
+./gradlew :app:assembleDebug :app:installDebug
 
-3. **Build and run**:
-   ```bash
-   # Debug build and install
-   ./gradlew :app:assembleDebug :app:installDebug
-   
-   # Release build (minified)
-   ./gradlew :app:assembleRelease
-   ```
+# release APK (minified)
+./gradlew :app:assembleRelease
+```
 
-### Configuration
+Releases are also available on the [GitHub Releases page](https://github.com/KuriGohan-Kamehameha/magni/releases).
+
+## Configuration
 
 Set your Android SDK location in `local.properties`:
+
 ```properties
 sdk.dir=/path/to/android/sdk
 ```
+
+Additional settings can be adjusted in `gradle.properties` or via Android Studio.
+
+## Usage
+
+### Basic Browsing
+1. Interact with the webpage on the bottom screen.
+2. Drag or pinch on the top mini‑map to move the viewport.
+3. Use hardware keys or on‑screen controls for navigation and zoom.
+
+### Zoom & Viewport
+- Use `-`/`+` buttons or pinch to adjust magnification.
+- The viewport box on the mini‑map resizes accordingly.
+
+### Settings
+- Choose between themes or enable the DSi preset.
+- Toggle privacy options (cookies, private mode).
+- Clear or search history/bookmarks.
+- Configure start page and HOME button behaviour.
 
 ## Project Structure
 
 ```
 app/src/main/
 ├── java/com/ayn/magni/
-│   ├── OverviewActivity.kt       # Top screen - full-page overview
-│   ├── ZoomActivity.kt           # Bottom screen - interactive viewer
-│   ├── ui/OverviewMapView.kt     # Mini-map rendering and interaction
-│   └── sync/BrowserSyncBus.kt    # Screen synchronization
+│   ├── OverviewActivity.kt       # Top-screen map
+│   ├── ZoomActivity.kt           # Bottom-screen WebView
+│   ├── ui/OverviewMapView.kt     # Custom view
+│   ├── settings/                 # Settings UI and helpers
+│   └── sync/BrowserSyncBus.kt    # Screen synchronization
 ├── res/
-│   ├── values/strings.xml        # UI strings
-│   ├── values/colors.xml         # Theme colors
-│   └── xml/network_security_config.xml  # Network policies
+│   ├── values/strings.xml        # UI text
+│   ├── values/colors.xml         # Theme palettes
+│   └── xml/network_security_config.xml # HTTPS/network policies
 └── AndroidManifest.xml
 ```
 
-## Usage
-
-### Basic Navigation
-1. Tap directly on the bottom screen webpage to interact
-2. Drag on the top mini-map to move the visible region
-3. Pinch on the top mini-map to zoom it without changing the viewport box
-
-### Zoom Control
-- Use `-`/`+` buttons or pinch on bottom screen to adjust magnification
-- Viewport box resizes in sync with zoom level
-
-### Settings
-- Access theme options including "DSi Classic" preset
-- Configure privacy settings (cookies, private mode)
-- Customize start page and home button behavior
-
 ## Technical Details
 
-- **Language**: Kotlin with AndroidX framework
-- **Target API**: 35 (Android 15)
-- **Min API**: 26 (Android 8.0)
-- **WebView Technique**: Uses `capturePicture()` (deprecated but functionally ideal) for full-page snapshots on overview screen
-- **Dual-Screen Support**: Automatically uses `ActivityOptions.setLaunchDisplayId` if secondary display available; falls back to single-screen mode otherwise
-- **Obfuscation**: ProGuard minification enabled in release builds to protect privacy logic and reduce APK size
+- **Language**: Kotlin + AndroidX.
+- **Min SDK**: 26; **Target SDK**: 35.
+- Uses `WebView.capturePicture()` (deprecated but reliable) for overview snapshots.
+- Secondary-display support via `ActivityOptions.setLaunchDisplayId`.
+- ProGuard/minify enabled for release builds.
 
 ## Privacy Notes
 
-Magni prioritizes user privacy with sensible defaults:
-- Encrypted HTTPS-only browsing by default
-- No tracking or telemetry
-- Cookies are opt-in (disabled by default)
-- IP address protection through network policies
-- Open-source code for transparency and auditability
+Magni is built with privacy at its core:
+
+- No telemetry, analytics, or tracking.
+- All network requests are encrypted (HTTPS‑only).
+- Cookies are opt‑in and third‑party trackers are blocked.
+- Code is fully open source for auditability.
 
 ## Architecture
 
-- **OverviewActivity**: Manages top-screen lifecycle and receives viewport updates from ZoomActivity
-- **ZoomActivity**: Manages bottom-screen WebView, handles user gestures, and broadcasts viewport changes
-- **BrowserSyncBus**: Shared event bus for coordinating state between screens
-- **OverviewMapView**: Custom canvas-based view rendering full-page mini-map with interactive viewport box
+- **OverviewActivity** – manages the top-screen mini-map and listens for viewport
+  changes.
+- **ZoomActivity** – hosts the WebView, handles gestures, and broadcasts state changes.
+- **BrowserSyncBus** – lightweight event bus (LiveData/Flow) for cross-activity sync.
+- **OverviewMapView** – custom Canvas view drawing full-page bitmap and viewport box.
 
 ## Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on submitting issues and pull requests.
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before
+submitting issues or pull requests. Run `./gradlew build` and consult `RELEASE_CHECKLIST.md`
+prior to release-related commits.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT © 2026 [Your Name or Organization]
 
 ## Acknowledgments
 
-- Inspired by the Nintendo DSi and 3DS web browsers
-- Built for the AYN Thor handheld gaming device
-- Powered by Android WebView and Kotlin
+- Nintendo DSi/3DS browser for inspiration.
+- AYN Thor dual-screen hardware.
+- Android WebView and AndroidX teams.
+
