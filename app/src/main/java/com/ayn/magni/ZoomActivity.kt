@@ -234,7 +234,9 @@ class ZoomActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         configureImmersiveMode()
-        currentWebView()?.onResume()
+        val web = currentWebView()
+        web?.onResume()
+        progress = web?.progress ?: 0
         applyScreenRoleLayout()
         refreshPreferences(reloadCurrent = false)
         publishBrowserState()
@@ -258,8 +260,10 @@ class ZoomActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        captureHandler.removeCallbacks(captureRunnable)
-        persistTabSession(flush = true)
+        captureHandler.removeCallbacksAndMessages(null)
+        if (::currentPreferences.isInitialized) {
+            persistTabSession(flush = true)
+        }
         uiHandler.removeCallbacksAndMessages(null)
         if (::currentPreferences.isInitialized &&
             isFinishing &&
@@ -270,11 +274,12 @@ class ZoomActivity : AppCompatActivity() {
 
         releaseSnapshotCache()
 
-        tabs.forEach { tab ->
-            safelyDestroyWebView(tab.webView)
-        }
+        val tabsCopy = tabs.toList()
         tabs.clear()
         tabsByWebView.clear()
+        tabsCopy.forEach { tab ->
+            safelyDestroyWebView(tab.webView)
+        }
         persistenceExecutor.shutdown()
         super.onDestroy()
     }
@@ -1380,7 +1385,7 @@ class ZoomActivity : AppCompatActivity() {
                 if (view === currentWebView()) {
                     progress = newProgress.coerceIn(0, 100)
                     binding.loadProgress.progress = progress
-                    binding.loadProgress.isVisible = progress < 100
+                    binding.loadProgress.isVisible = progress in 1..99
                     updateReloadButtonState()
                     publishBrowserState()
                 }
@@ -1405,7 +1410,8 @@ class ZoomActivity : AppCompatActivity() {
                 if (!webRequest.isForMainFrame && isUnsafeSubresourceUri(webRequest.url)) {
                     return blockedResourceResponse()
                 }
-                if (webRequest.isForMainFrame || !currentPreferences.blockTrackers) {
+                val prefs = currentPreferences
+                if (webRequest.isForMainFrame || !prefs.blockTrackers) {
                     return null
                 }
 
@@ -1932,13 +1938,7 @@ class ZoomActivity : AppCompatActivity() {
                 defaultMobileUserAgent
             }
             
-            // Performance optimizations
-            setRenderPriority(WebSettings.RenderPriority.HIGH)
-            
-            // Enable offscreen pre-rasterization for smoother scrolling
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                offscreenPreRaster = true
-            }
+            offscreenPreRaster = true
         }
 
         CookieManager.getInstance().apply {
@@ -2273,8 +2273,9 @@ class ZoomActivity : AppCompatActivity() {
 
     @Suppress("DEPRECATION")
     private fun captureOverviewSnapshot() {
+        if (isDestroyed || isFinishing) return
         val web = currentWebView() ?: return
-        if (!web.isShown || web.width <= 0 || web.height <= 0) {
+        if (!web.isAttachedToWindow || !web.isShown || web.width <= 0 || web.height <= 0) {
             return
         }
 
@@ -2497,6 +2498,10 @@ class ZoomActivity : AppCompatActivity() {
         }
 
         uiHandler.postDelayed({
+            if (isDestroyed || isFinishing) {
+                trackerUiRefreshScheduled.set(false)
+                return@postDelayed
+            }
             trackerUiRefreshScheduled.set(false)
             lastTrackerUiRefreshAtMs.set(SystemClock.elapsedRealtime())
             updateTabIndicator()
@@ -2854,6 +2859,7 @@ class ZoomActivity : AppCompatActivity() {
     }
 
     private fun handleRenderProcessGone(webView: SyncWebView) {
+        if (isDestroyed || isFinishing) return
         val crashedTab = tabsByWebView.remove(webView) ?: return
         val currentTabId = tabs.getOrNull(currentTabIndex)?.id
         val crashedIndex = tabs.indexOfFirst { it.id == crashedTab.id }
@@ -3006,10 +3012,13 @@ class ZoomActivity : AppCompatActivity() {
 
         WebStorage.getInstance().deleteAllData()
 
-        WebViewDatabase.getInstance(this).apply {
-            clearFormData()
-            clearHttpAuthUsernamePassword()
-            clearUsernamePassword()
+        runCatching {
+            @Suppress("DEPRECATION")
+            WebViewDatabase.getInstance(this).apply {
+                clearFormData()
+                clearHttpAuthUsernamePassword()
+                clearUsernamePassword()
+            }
         }
     }
 
@@ -3032,6 +3041,9 @@ class ZoomActivity : AppCompatActivity() {
         try {
             webView.onScrollChangedListener = null
             webView.stopLoading()
+            webView.webChromeClient = null
+            webView.webViewClient = WebViewClient()
+            webView.setDownloadListener(null)
             (webView.parent as? ViewGroup)?.removeView(webView)
             webView.destroy()
         } catch (_: Throwable) {

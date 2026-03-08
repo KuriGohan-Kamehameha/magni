@@ -25,7 +25,7 @@ object BrowserBookmarkStore {
 
         val array = try {
             JSONArray(raw)
-        } catch (_: Throwable) {
+        } catch (_: org.json.JSONException) {
             JSONArray()
         }
 

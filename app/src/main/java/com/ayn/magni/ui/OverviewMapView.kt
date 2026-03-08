@@ -170,7 +170,7 @@ class OverviewMapView @JvmOverloads constructor(
         snapshotPageHeight: Int,
         viewport: BrowserViewport?
     ) {
-        this.snapshot = snapshot
+        this.snapshot = if (snapshot?.isRecycled == true) null else snapshot
         this.snapshotPageWidth = snapshotPageWidth.coerceAtLeast(1)
         this.snapshotPageHeight = snapshotPageHeight.coerceAtLeast(1)
         this.viewport = viewport
@@ -272,6 +272,7 @@ class OverviewMapView @JvmOverloads constructor(
     }
 
     private fun drawSnapshot(canvas: Canvas, bitmap: Bitmap) {
+        if (bitmap.isRecycled) return
         val maxX = bitmap.width.coerceAtLeast(1)
         val maxY = bitmap.height.coerceAtLeast(1)
 
@@ -281,7 +282,7 @@ class OverviewMapView @JvmOverloads constructor(
         val srcBottom = (visibleWindowNorm.bottom * maxY).roundToInt().coerceIn(srcTop + 1, maxY)
 
         bitmapSrcRect.set(srcLeft, srcTop, srcRight, srcBottom)
-        canvas.drawBitmap(bitmap, bitmapSrcRect, mapRect, snapshotPaint)
+        runCatching { canvas.drawBitmap(bitmap, bitmapSrcRect, mapRect, snapshotPaint) }
     }
 
     private fun drawGrid(canvas: Canvas) {
