@@ -28,7 +28,7 @@ object BrowserSessionStore {
 
         val objectValue = try {
             JSONObject(raw)
-        } catch (_: Throwable) {
+        } catch (_: org.json.JSONException) {
             return null
         }
 
