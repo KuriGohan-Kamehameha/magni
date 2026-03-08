@@ -19,6 +19,8 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:background="@android:color/transparent"
+            android:contentDescription="@string/accessibility_overview_map"
+            android:importantForAccessibility="yes"
             android:padding="6dp" />
 
         <LinearLayout

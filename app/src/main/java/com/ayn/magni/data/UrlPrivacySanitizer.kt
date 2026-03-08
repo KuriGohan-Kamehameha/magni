@@ -19,13 +19,50 @@ object UrlPrivacySanitizer {
         "vero_conv",
         "vero_id",
         "_hsenc",
-        "_hsmi"
+        "_hsmi",
+        // Additional tracking parameters for comprehensive privacy
+        "ttclid",
+        "twclid",
+        "li_fat_id",
+        "rb_clickid",
+        "s_kwcid",
+        "ef_id",
+        "yclid",
+        "_openstat",
+        "epik",
+        "pp",
+        "si",
+        "ref",
+        "ref_",
+        "spm",
+        "scm",
+        "algo_exp_id",
+        "algo_pvid",
+        "vt_",
+        "ml_",
+        "trk_",
+        "affiliate_id",
+        "affid",
+        "clickref",
+        "source_caller"
     )
 
     private val keyPrefixes = listOf(
         "utm_",
         "pk_",
-        "ga_"
+        "ga_",
+        // Additional tracking prefixes
+        "mtm_",
+        "piwik_",
+        "hsa_",
+        "icid_",
+        "itm_",
+        "mc_",
+        "WT.",
+        "__hstc",
+        "__hssc",
+        "__hsfp",
+        "_ga_"
     )
 
     fun stripTrackingParameters(url: String, enabled: Boolean): String {

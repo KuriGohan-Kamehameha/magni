@@ -140,4 +140,23 @@
     <string name="tab_info_reader">READER</string>
     <string name="tab_info_template">%1$s  |  %2$d blocked</string>
     <string name="tab_info_full_template">TAB %1$d/%2$d  |  %3$s  |  %4$d blocked</string>
+
+    <!-- Accessibility strings for screen reader support -->
+    <string name="accessibility_back_button">Go back to previous page</string>
+    <string name="accessibility_forward_button">Go forward to next page</string>
+    <string name="accessibility_reload_button">Reload current page</string>
+    <string name="accessibility_url_button">Open address bar to enter URL</string>
+    <string name="accessibility_home_button">Go to home page</string>
+    <string name="accessibility_tabs_button">View and switch tabs</string>
+    <string name="accessibility_new_tab_button">Open new tab</string>
+    <string name="accessibility_settings_button">Open settings</string>
+    <string name="accessibility_downloads_button">View downloads</string>
+    <string name="accessibility_desktop_button">Toggle desktop site mode</string>
+    <string name="accessibility_reader_button">Toggle reader mode for article view</string>
+    <string name="accessibility_zoom_out_button">Decrease page zoom</string>
+    <string name="accessibility_zoom_in_button">Increase page zoom</string>
+    <string name="accessibility_overview_map">Page overview map showing current position. Drag to navigate, pinch to zoom the map.</string>
+    <string name="accessibility_tab_info">Tab status indicator showing current tab number and browsing mode</string>
+    <string name="accessibility_progress_bar">Page loading progress</string>
+    <string name="accessibility_web_container">Web page content area</string>
 </resources>

@@ -10,6 +10,8 @@ import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.core.content.ContextCompat
 import com.ayn.magni.R
 import com.ayn.magni.sync.BrowserViewport
@@ -17,6 +19,10 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+/**
+ * Custom map view showing page overview with pinch-to-zoom support.
+ * NASA standard: includes accessibility support for screen readers.
+ */
 class OverviewMapView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -516,6 +522,58 @@ class OverviewMapView @JvmOverloads constructor(
 
     private fun isScalingActive(): Boolean {
         return multiTouchActive || scaleGestureDetector.isInProgress
+    }
+    
+    // Accessibility: Override to provide custom accessibility information
+    override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        info.className = "android.view.View"
+        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD)
+        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD)
+        info.isScrollable = true
+        
+        // Provide zoom level information for screen readers
+        val zoomPercent = (overviewZoom * 100f).roundToInt()
+        info.contentDescription = context.getString(
+            R.string.accessibility_overview_map
+        ) + ". " + context.getString(
+            R.string.overview_zoom_template,
+            zoomPercent
+        )
+    }
+    
+    override fun performAccessibilityAction(action: Int, arguments: android.os.Bundle?): Boolean {
+        when (action) {
+            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD -> {
+                // Zoom in via accessibility action
+                val oldZoom = overviewZoom
+                overviewZoom = (overviewZoom * 1.5f).coerceIn(MIN_OVERVIEW_ZOOM, MAX_OVERVIEW_ZOOM)
+                if (overviewZoom != oldZoom) {
+                    updateVisibleWindow()
+                    onOverviewZoomChanged?.invoke(overviewZoom)
+                    invalidate()
+                    announceForAccessibility(
+                        context.getString(R.string.overview_zoom_template, (overviewZoom * 100f).roundToInt())
+                    )
+                    return true
+                }
+            }
+            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD -> {
+                // Zoom out via accessibility action
+                val oldZoom = overviewZoom
+                overviewZoom = (overviewZoom / 1.5f).coerceIn(MIN_OVERVIEW_ZOOM, MAX_OVERVIEW_ZOOM)
+                if (overviewZoom != oldZoom) {
+                    updateVisibleWindow()
+                    onOverviewZoomChanged?.invoke(overviewZoom)
+                    invalidate()
+                    announceForAccessibility(
+                        context.getString(R.string.overview_zoom_template, (overviewZoom * 100f).roundToInt())
+                    )
+                    return true
+                }
+            }
+        }
+        return super.performAccessibilityAction(action, arguments)
     }
 
     private fun dp(value: Float): Float = value * resources.displayMetrics.density

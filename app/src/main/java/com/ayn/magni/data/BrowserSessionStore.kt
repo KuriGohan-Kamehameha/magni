@@ -20,11 +20,19 @@ object BrowserSessionStore {
     private const val KEY_SESSION = "tab_session"
     private const val MAX_SESSION_TABS = 10
     private const val MAX_TITLE_LENGTH = 140
+    // NASA standard: explicit bounds for input validation
+    private const val MAX_URL_LENGTH = 2048
+    private const val MAX_JSON_LENGTH = 100_000
 
     fun load(context: Context): BrowserSession? {
         val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getString(KEY_SESSION, null)
             ?: return null
+
+        // NASA standard: validate input length before parsing
+        if (raw.length > MAX_JSON_LENGTH) {
+            return null
+        }
 
         val objectValue = try {
             JSONObject(raw)
@@ -35,10 +43,13 @@ object BrowserSessionStore {
         val tabsArray = objectValue.optJSONArray("tabs") ?: JSONArray()
         val tabs = mutableListOf<SessionTab>()
         val seenUrls = HashSet<String>()
-        for (index in 0 until tabsArray.length()) {
+        // NASA standard: fixed loop bounds
+        val maxIterations = minOf(tabsArray.length(), MAX_SESSION_TABS * 2)
+        for (index in 0 until maxIterations) {
             val item = tabsArray.optJSONObject(index) ?: continue
             val url = item.optString("url").trim()
-            if (url.isBlank()) {
+            // NASA standard: validate input bounds
+            if (url.isBlank() || url.length > MAX_URL_LENGTH) {
                 continue
             }
             if (!seenUrls.add(url)) {
@@ -66,7 +77,8 @@ object BrowserSessionStore {
         val seenUrls = HashSet<String>()
         val sanitizedTabs = tabs.mapNotNull { tab ->
             val normalizedUrl = tab.url.trim()
-            if (normalizedUrl.isBlank()) {
+            // NASA standard: validate input bounds
+            if (normalizedUrl.isBlank() || normalizedUrl.length > MAX_URL_LENGTH) {
                 null
             } else if (!seenUrls.add(normalizedUrl)) {
                 null
@@ -87,8 +99,8 @@ object BrowserSessionStore {
         sanitizedTabs.forEach { tab ->
             outputTabs.put(
                 JSONObject()
-                    .put("url", tab.url)
-                    .put("title", tab.title)
+                    .put("url", tab.url.take(MAX_URL_LENGTH))
+                    .put("title", tab.title.take(MAX_TITLE_LENGTH))
                     .put("pinned", tab.pinned)
             )
         }
@@ -97,10 +109,11 @@ object BrowserSessionStore {
             .put("tabs", outputTabs)
             .put("currentIndex", currentIndex.coerceIn(0, sanitizedTabs.lastIndex))
 
+        // NASA standard: use commit() for atomic writes to ensure data integrity
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_SESSION, output.toString())
-            .apply()
+            .commit()
     }
 
     fun clear(context: Context) {
