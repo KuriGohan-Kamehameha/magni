@@ -175,11 +175,18 @@ prior to release-related commits.
 
 ## License
 
-MIT © 2026 [Your Name or Organization]
+MIT © 2026
+
+- **fitoori** (https://github.com/fitoori)
+- **kurigohan-kamehameha** (https://github.com/kurigohan-kamehameha)
+
+Original development and maintenance by the above contributors. See the [LICENSE](LICENSE) file for full details.
 
 ## Acknowledgments
 
 - Nintendo DSi/3DS browser for inspiration.
 - AYN Thor dual-screen hardware.
 - Android WebView and AndroidX teams.
+- Copilot
+
 
