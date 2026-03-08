@@ -229,6 +229,9 @@ class ZoomActivity : AppCompatActivity() {
         BrowserSyncBus.updateChromeVisibility(isUrlBarVisible)
 
         restoreTabsOrCreateDefault()
+        if (savedInstanceState == null) {
+            handleExternalViewIntent(intent)
+        }
     }
 
     override fun onResume() {
@@ -242,6 +245,12 @@ class ZoomActivity : AppCompatActivity() {
         publishBrowserState()
         updateTabIndicator()
         scheduleCapture(120L)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleExternalViewIntent(intent)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -1821,6 +1830,15 @@ class ZoomActivity : AppCompatActivity() {
     private fun loadFromInput(rawInput: String) {
         val normalized = normalizeInput(rawInput, allowSearch = true)
         loadUrlInCurrentTab(normalized)
+    }
+
+    private fun handleExternalViewIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) {
+            return
+        }
+
+        val normalizedUrl = normalizeMainFrameUrl(intent.data) ?: return
+        loadUrlInCurrentTab(normalizedUrl)
     }
 
     private fun loadUrlInCurrentTab(url: String) {
