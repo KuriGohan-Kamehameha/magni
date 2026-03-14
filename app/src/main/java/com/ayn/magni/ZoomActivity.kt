@@ -169,6 +169,8 @@ class ZoomActivity : AppCompatActivity() {
     private var l1r1ComboActive: Boolean = false
     private var l2r2ComboActive: Boolean = false
     private var lastScreenSwapAtMs: Long = 0L
+    private var isFinishingForScreenSwap: Boolean = false
+    private var isSwapRetryScheduled: Boolean = false
 
     private val trackerUiRefreshScheduled = AtomicBoolean(false)
     private val lastTrackerUiRefreshAtMs = AtomicLong(0L)
@@ -209,16 +211,8 @@ class ZoomActivity : AppCompatActivity() {
             WindowManager.LayoutParams.FLAG_SECURE,
             WindowManager.LayoutParams.FLAG_SECURE
         )
-        // NASA standard: security-critical operations should be explicit
-        // WebView debugging is disabled unconditionally for security
-        // Only enable during development by temporarily changing this line
+        // WebView debugging is disabled unconditionally for security.
         WebView.setWebContentsDebuggingEnabled(false)
-        
-        // Additional security hardening
-        window.setFlags(
-            WindowManager.LayoutParams.FLAG_SECURE,
-            WindowManager.LayoutParams.FLAG_SECURE
-        )
 
         binding = ActivityZoomBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -285,6 +279,7 @@ class ZoomActivity : AppCompatActivity() {
         uiHandler.removeCallbacksAndMessages(null)
         if (::currentPreferences.isInitialized &&
             isFinishing &&
+            !isFinishingForScreenSwap &&
             (currentPreferences.privateBrowsingEnabled || currentPreferences.clearBrowsingDataOnExit)
         ) {
             clearAllWebData()
@@ -694,13 +689,26 @@ class ZoomActivity : AppCompatActivity() {
         }
         lastScreenSwapAtMs = now
 
-        val hasSecondary = hasSecondaryDisplay()
-        if (!hasSecondary) {
-            showThrottledToast(R.string.display_single, TOAST_COOLDOWN_MS)
+        if (!DisplayRoleStore.tryAcquireScreenSwapLock(SCREEN_SWAP_GLOBAL_LOCK_MS)) {
+            scheduleSwapRetryIfNeeded()
             return
         }
 
+        val hasSecondary = hasSecondaryDisplay()
+        if (!hasSecondary) {
+            showThrottledToast(R.string.display_single, TOAST_COOLDOWN_MS)
+            DisplayRoleStore.releaseScreenSwapLock()
+            return
+        }
+
+        val previousZoomOnTop = DisplayRoleStore.isZoomOnTop(this)
         val zoomOnTop = DisplayRoleStore.toggleZoomOnTop(this)
+        val secondaryDisplayId = findSecondaryDisplayId(Display.DEFAULT_DISPLAY)
+        val targetOverviewDisplay = if (zoomOnTop && secondaryDisplayId != null) {
+            secondaryDisplayId
+        } else {
+            Display.DEFAULT_DISPLAY
+        }
         val toastRes = if (zoomOnTop) {
             R.string.swap_zoom_top_toast
         } else {
@@ -711,15 +719,39 @@ class ZoomActivity : AppCompatActivity() {
         val swapAnimation = ScreenSwapTransition.forZoomOnTop(zoomOnTop)
 
         val relaunch = Intent(this, OverviewActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            putExtra(OverviewActivity.EXTRA_FORCE_SWAP_HANDOFF, true)
+            putExtra(OverviewActivity.EXTRA_TARGET_ZOOM_ON_TOP, zoomOnTop)
         }
-        val options = ActivityOptions.makeCustomAnimation(
-            this,
-            swapAnimation.enterAnimRes,
-            swapAnimation.exitAnimRes
+        val started = launchOverviewOnDisplay(
+            intent = relaunch,
+            targetDisplayId = targetOverviewDisplay,
+            animation = swapAnimation
         )
-        startActivity(relaunch, options.toBundle())
+        if (!started) {
+            DisplayRoleStore.setZoomOnTop(this, previousZoomOnTop)
+            DisplayRoleStore.releaseScreenSwapLock()
+            return
+        }
+
+        isFinishingForScreenSwap = true
         finish()
+    }
+
+    private fun scheduleSwapRetryIfNeeded() {
+        if (isSwapRetryScheduled || isFinishing || isDestroyed) {
+            return
+        }
+        isSwapRetryScheduled = true
+        binding.root.postDelayed(
+            {
+                isSwapRetryScheduled = false
+                if (!isFinishing && !isDestroyed) {
+                    swapScreenRoles()
+                }
+            },
+            SCREEN_SWAP_RETRY_DELAY_MS
+        )
     }
 
     private fun applyScreenRoleLayout() {
@@ -749,6 +781,47 @@ class ZoomActivity : AppCompatActivity() {
         return displayManager.displays.any { display ->
             display.displayId != Display.DEFAULT_DISPLAY && display.state != Display.STATE_OFF
         }
+    }
+
+    private fun findSecondaryDisplayId(currentDisplayId: Int): Int? {
+        val displayManager = getSystemService(DisplayManager::class.java) ?: return null
+        return displayManager.displays
+            .asSequence()
+            .filter { it.displayId != currentDisplayId && it.state != Display.STATE_OFF }
+            .map { it.displayId }
+            .firstOrNull()
+    }
+
+    private fun launchOverviewOnDisplay(
+        intent: Intent,
+        targetDisplayId: Int,
+        animation: ScreenSwapAnimation
+    ): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val options = ActivityOptions.makeBasic().setLaunchDisplayId(targetDisplayId)
+            options.update(
+                ActivityOptions.makeCustomAnimation(
+                    this,
+                    animation.enterAnimRes,
+                    animation.exitAnimRes
+                )
+            )
+            val startedWithDisplay = runCatching {
+                startActivity(intent, options.toBundle())
+            }.isSuccess
+            if (startedWithDisplay) {
+                return true
+            }
+        }
+
+        val fallbackOptions = ActivityOptions.makeCustomAnimation(
+            this,
+            animation.enterAnimRes,
+            animation.exitAnimRes
+        )
+        return runCatching {
+            startActivity(intent, fallbackOptions.toBundle())
+        }.isSuccess
     }
 
     private fun toggleUrlBarVisibility() {
@@ -1067,9 +1140,6 @@ class ZoomActivity : AppCompatActivity() {
         if (trimmed.isBlank()) {
             return homeUrl()
         }
-        if (trimmed.startsWith(BrowserSettingsStore.BUILTIN_HOME, ignoreCase = true)) {
-            return homeUrl()
-        }
         val parsed = runCatching { Uri.parse(trimmed) }.getOrNull() ?: return homeUrl()
         return normalizeMainFrameUrl(parsed) ?: homeUrl()
     }
@@ -1316,9 +1386,6 @@ class ZoomActivity : AppCompatActivity() {
     private fun buildWebView(): SyncWebView {
         val webView = SyncWebView(this)
         webView.setBackgroundColor(pageBackgroundColor(currentPreferences))
-        
-        // Enable hardware acceleration for better rendering performance
-        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
         applyWebSettings(webView, currentPreferences)
 
@@ -1761,7 +1828,6 @@ class ZoomActivity : AppCompatActivity() {
             .trim()
         if (raw.isBlank() ||
             raw.startsWith("about:blank", ignoreCase = true) ||
-            raw.startsWith(BrowserSettingsStore.BUILTIN_HOME, ignoreCase = true) ||
             raw.startsWith("javascript:", ignoreCase = true) ||
             raw.startsWith("data:", ignoreCase = true)
         ) {
@@ -1775,11 +1841,7 @@ class ZoomActivity : AppCompatActivity() {
         val textField = EditText(this).apply {
             hint = getString(R.string.url_dialog_hint)
             setSingleLine(true)
-            setText(
-                web?.url
-                    ?.takeUnless { it.startsWith(BrowserSettingsStore.BUILTIN_HOME) }
-                    .orEmpty()
-            )
+            setText(web?.url.orEmpty())
             setSelection(text.length)
         }
 
@@ -1862,18 +1924,7 @@ class ZoomActivity : AppCompatActivity() {
     }
 
     private fun homeUrl(): String {
-        val sanitized = BrowserSettingsStore.sanitizedHomepage(currentPreferences.homepage)
-        if (!sanitized.startsWith(BrowserSettingsStore.BUILTIN_HOME, ignoreCase = true)) {
-            return sanitized
-        }
-
-        val baseHome = sanitized.substringBefore('?')
-        return when (currentPreferences.themeMode) {
-            ThemeMode.DSI_CLASSIC -> "$baseHome?theme=dsi"
-            ThemeMode.DSI_CLASSIC_DARK -> "$baseHome?theme=dsi-dark"
-            ThemeMode.ELECTRIC_PURPLE -> "$baseHome?theme=electric"
-            else -> baseHome
-        }
+        return BrowserSettingsStore.sanitizedHomepage(currentPreferences.homepage)
     }
 
     private fun normalizeInput(rawInput: String, allowSearch: Boolean): String {
@@ -1964,8 +2015,9 @@ class ZoomActivity : AppCompatActivity() {
             } else {
                 defaultMobileUserAgent
             }
-            
-            offscreenPreRaster = true
+
+            // Keep rasterization demand-driven to avoid excess memory pressure.
+            offscreenPreRaster = false
         }
 
         CookieManager.getInstance().apply {
@@ -2929,9 +2981,6 @@ class ZoomActivity : AppCompatActivity() {
 
     private fun normalizeMainFrameUrl(uri: Uri?): String? {
         val target = uri ?: return null
-        if (isAllowedAssetUri(target)) {
-            return target.toString()
-        }
         val scheme = target.scheme?.lowercase() ?: return null
         val sanitized = when (scheme) {
             "https" -> target.toString()
@@ -2956,14 +3005,10 @@ class ZoomActivity : AppCompatActivity() {
 
     private fun isUnsafeSubresourceUri(uri: Uri): Boolean {
         val scheme = uri.scheme?.lowercase() ?: return true
-        if (scheme == "file") {
-            return !isAllowedAssetUri(uri)
-        }
-        return scheme == "content" || scheme == "intent" || scheme == "javascript"
-    }
-
-    private fun isAllowedAssetUri(uri: Uri): Boolean {
-        return uri.toString().startsWith(ASSET_HOME_PREFIX, ignoreCase = true)
+        return scheme == "content" ||
+            scheme == "intent" ||
+            scheme == "javascript" ||
+            scheme == "file"
     }
 
     private fun shouldBlockInsecureMainFrameNavigation(uri: Uri?): Boolean {
@@ -2971,9 +3016,6 @@ class ZoomActivity : AppCompatActivity() {
             return false
         }
         val target = uri ?: return false
-        if (isAllowedAssetUri(target)) {
-            return false
-        }
         return target.scheme.equals("http", ignoreCase = true)
     }
 
@@ -3068,9 +3110,11 @@ class ZoomActivity : AppCompatActivity() {
         try {
             webView.onScrollChangedListener = null
             webView.stopLoading()
+            runCatching { webView.loadUrl("about:blank") }
             webView.webChromeClient = null
             webView.webViewClient = WebViewClient()
             webView.setDownloadListener(null)
+            webView.removeAllViews()
             (webView.parent as? ViewGroup)?.removeView(webView)
             webView.destroy()
         } catch (_: Throwable) {
@@ -3080,7 +3124,11 @@ class ZoomActivity : AppCompatActivity() {
 
     private fun releaseSnapshotCache() {
         reusableSnapshotBitmap = null
-        BrowserSyncBus.updateSnapshot(snapshot = null, pageWidth = 1, pageHeight = 1)
+        // Preserve the snapshot in BrowserSyncBus during a screen swap so that
+        // OverviewActivity can render the map immediately when it starts.
+        if (!isFinishingForScreenSwap) {
+            BrowserSyncBus.updateSnapshot(snapshot = null, pageWidth = 1, pageHeight = 1)
+        }
     }
 
     private fun currentWebView(): SyncWebView? = tabs.getOrNull(currentTabIndex)?.webView
@@ -3113,11 +3161,12 @@ class ZoomActivity : AppCompatActivity() {
     }
 
     companion object {
-        private const val ASSET_HOME_PREFIX = "file:///android_asset/"
         private const val READER_MODE_BASE_URL = "https://reader.magni.local/"
         private const val MAX_TABS = 10
         private const val TOAST_COOLDOWN_MS = 1800L
         private const val SCREEN_SWAP_DEBOUNCE_MS = 320L
+        private const val SCREEN_SWAP_GLOBAL_LOCK_MS = 650L
+        private const val SCREEN_SWAP_RETRY_DELAY_MS = 180L
         private const val TAB_LIMIT_TOAST_COOLDOWN_MS = 2500L
         private const val TRACKER_UI_MIN_UPDATE_INTERVAL_MS = 300L
         private const val JS_DIALOG_TOAST_COOLDOWN_MS = 2000L
@@ -3128,7 +3177,7 @@ class ZoomActivity : AppCompatActivity() {
         private const val MAX_BOOKMARK_DIALOG_ITEMS = 40
         private const val SNAPSHOT_MIN_CAPTURE_INTERVAL_MS = 200L
         private const val SESSION_PERSIST_DEBOUNCE_MS = 280L
-        private const val SNAPSHOT_MAX_EDGE_PX = 12_000
+        private const val SNAPSHOT_MAX_EDGE_PX = 4_096
         private const val TOOLBAR_PULL_THRESHOLD_DP = 18f
         private const val TOOLBAR_DISMISS_PULL_THRESHOLD_DP = 22f
         private const val URL_BAR_AUTO_HIDE_DELAY_MS = 4500L
@@ -3145,11 +3194,12 @@ class ZoomActivity : AppCompatActivity() {
         private const val TAB_NEW_TAB_INCOMING_START_SCALE = 0.985f
         private const val TAB_NEW_TAB_OUTGOING_END_ALPHA = 0.8f
         private const val TAB_NEW_TAB_OUTGOING_END_SCALE = 0.992f
+        // Keep overview snapshots bounded so repeated swaps/pages do not balloon memory/GPU caches.
         private val SNAPSHOT_PIXEL_BUDGETS = doubleArrayOf(
-            32_000_000.0,
-            20_000_000.0,
-            12_000_000.0,
-            8_000_000.0
+            8_000_000.0,
+            6_000_000.0,
+            4_000_000.0,
+            3_000_000.0
         )
         private val tabEnterInterpolator = DecelerateInterpolator(1.4f)
         private val tabExitInterpolator = AccelerateInterpolator(1.15f)

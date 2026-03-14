@@ -71,9 +71,7 @@ object BrowserHistoryStore {
                 return
             }
             val safeUrl = BrowserSettingsStore.sanitizedNavigableUrl(url) ?: return
-            if (safeUrl.startsWith("about:blank") ||
-                safeUrl.startsWith(BrowserSettingsStore.BUILTIN_HOME)
-            ) {
+            if (safeUrl.startsWith("about:blank")) {
                 return
             }
 

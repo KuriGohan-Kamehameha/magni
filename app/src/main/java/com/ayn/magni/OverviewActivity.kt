@@ -40,6 +40,10 @@ class OverviewActivity : AppCompatActivity() {
     private var browserCanGoBack = false
     private var lastScreenSwapAtMs = 0L
     private var isOverviewTopBarVisible = false
+    private var isDisplayAlignmentInProgress = false
+    private var lastDisplayAlignmentAtMs = 0L
+    private var pendingSwapAnimation: ScreenSwapAnimation? = null
+    private var isSwapRetryScheduled = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         BrowserSettingsStore.applyTheme(this)
@@ -52,6 +56,7 @@ class OverviewActivity : AppCompatActivity() {
         binding = ActivityOverviewBinding.inflate(layoutInflater)
         setContentView(binding.root)
         configureImmersiveMode()
+        applyIncomingSwapRequest(intent)
 
         binding.overviewMap.setOverlayMode(false)
         binding.overviewMap.onPositionRequested = { x, y ->
@@ -96,7 +101,16 @@ class OverviewActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
-        alignDisplaysAndLaunchZoomIfNeeded()
+        consumePendingSwapRequestOrAlign()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        applyIncomingSwapRequest(intent)
+        if (pendingSwapAnimation != null) {
+            consumePendingSwapRequestOrAlign()
+        }
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
@@ -138,12 +152,7 @@ class OverviewActivity : AppCompatActivity() {
         }
         browserCanGoBack = state.canGoBack
         setOverviewTopBarVisible(state.chromeControlsVisible)
-        val defaultTitle = state.title.ifBlank { getString(R.string.browser_title_default) }
-        binding.titleText.text = if (isBuiltinHomeUrl(state.url)) {
-            getString(R.string.browser_title_home)
-        } else {
-            defaultTitle
-        }
+        binding.titleText.text = state.title.ifBlank { getString(R.string.browser_title_default) }
 
         val urlText = state.url.ifBlank { "about:blank" }
         binding.metaText.text = getString(
@@ -296,11 +305,50 @@ class OverviewActivity : AppCompatActivity() {
         )
     }
 
-    private fun launchZoomActivity(swapAnimation: ScreenSwapAnimation? = null) {
-        if (isFinishing || isDestroyed) {
+    private fun applyIncomingSwapRequest(intent: Intent?) {
+        val request = intent ?: return
+        if (!request.getBooleanExtra(EXTRA_FORCE_SWAP_HANDOFF, false)) {
             return
         }
-        val intent = Intent(this, ZoomActivity::class.java)
+
+        val zoomOnTop = request.getBooleanExtra(
+            EXTRA_TARGET_ZOOM_ON_TOP,
+            DisplayRoleStore.isZoomOnTop(this)
+        )
+        zoomLaunchAttempted = false
+        pendingSwapAnimation = ScreenSwapTransition.forZoomOnTop(zoomOnTop)
+    }
+
+    private fun consumePendingSwapRequestOrAlign() {
+        val swapAnimation = pendingSwapAnimation
+        if (swapAnimation == null) {
+            alignDisplaysAndLaunchZoomIfNeeded(null)
+            return
+        }
+
+        val started = alignDisplaysAndLaunchZoomIfNeeded(swapAnimation)
+        if (started) {
+            pendingSwapAnimation = null
+            return
+        }
+
+        binding.root.postDelayed(
+            {
+                if (!isFinishing && !isDestroyed && pendingSwapAnimation != null) {
+                    consumePendingSwapRequestOrAlign()
+                }
+            },
+            PENDING_SWAP_RETRY_DELAY_MS
+        )
+    }
+
+    private fun launchZoomActivity(swapAnimation: ScreenSwapAnimation? = null): Boolean {
+        if (isFinishing || isDestroyed) {
+            return false
+        }
+        val intent = Intent(this, ZoomActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
         val secondaryDisplayId = findSecondaryDisplayId(Display.DEFAULT_DISPLAY)
         val wantsZoomOnTop = DisplayRoleStore.isZoomOnTop(this)
         val canSwap = secondaryDisplayId != null
@@ -323,65 +371,101 @@ class OverviewActivity : AppCompatActivity() {
                     )
                 }
                 startActivity(intent, options.toBundle())
-                return
+                return true
             } catch (_: Exception) {
                 // Fallback below.
             }
         }
 
-        if (swapAnimation != null) {
+        return if (swapAnimation != null) {
             val options = ActivityOptions.makeCustomAnimation(
                 this,
                 swapAnimation.enterAnimRes,
                 swapAnimation.exitAnimRes
             )
-            startActivity(intent, options.toBundle())
+            runCatching {
+                startActivity(intent, options.toBundle())
+            }.isSuccess
         } else {
-            startActivity(intent)
+            runCatching {
+                startActivity(intent)
+            }.isSuccess
         }
     }
 
-    private fun alignDisplaysAndLaunchZoomIfNeeded(swapAnimation: ScreenSwapAnimation? = null) {
+    private fun alignDisplaysAndLaunchZoomIfNeeded(
+        swapAnimation: ScreenSwapAnimation? = null
+    ): Boolean {
         if (isFinishing || isDestroyed) {
-            return
+            return false
         }
-        val secondaryDisplayId = findSecondaryDisplayId(Display.DEFAULT_DISPLAY)
-        val wantsZoomOnTop = DisplayRoleStore.isZoomOnTop(this)
-        val canSwap = secondaryDisplayId != null
-        val targetOverviewDisplay = if (wantsZoomOnTop && canSwap) {
-            secondaryDisplayId
-        } else {
-            Display.DEFAULT_DISPLAY
-        }
-        val current = currentDisplayId()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            targetOverviewDisplay != null &&
-            current != targetOverviewDisplay
-        ) {
-            try {
-                val relaunch = Intent(this, OverviewActivity::class.java)
-                val options = ActivityOptions.makeBasic().setLaunchDisplayId(targetOverviewDisplay)
-                if (swapAnimation != null) {
-                    options.update(
-                        ActivityOptions.makeCustomAnimation(
-                            this,
-                            swapAnimation.enterAnimRes,
-                            swapAnimation.exitAnimRes
-                        )
-                    )
-                }
-                startActivity(relaunch, options.toBundle())
-                finish()
-                return
-            } catch (_: Exception) {
-                // If display launch fails, continue on current display.
+        val now = SystemClock.elapsedRealtime()
+        if (isDisplayAlignmentInProgress) {
+            return false
+        }
+        if (swapAnimation == null && now - lastDisplayAlignmentAtMs < DISPLAY_ALIGNMENT_DEBOUNCE_MS) {
+            return false
+        }
+
+        isDisplayAlignmentInProgress = true
+        lastDisplayAlignmentAtMs = now
+        try {
+            val secondaryDisplayId = findSecondaryDisplayId(Display.DEFAULT_DISPLAY)
+            val wantsZoomOnTop = DisplayRoleStore.isZoomOnTop(this)
+            val canSwap = secondaryDisplayId != null
+            val targetOverviewDisplay = if (wantsZoomOnTop && canSwap) {
+                secondaryDisplayId
+            } else {
+                Display.DEFAULT_DISPLAY
             }
-        }
+            val current = currentDisplayId()
 
-        if (!zoomLaunchAttempted) {
-            zoomLaunchAttempted = true
-            launchZoomActivity(swapAnimation)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                targetOverviewDisplay != null &&
+                current != targetOverviewDisplay
+            ) {
+                try {
+                    val relaunch = Intent(this, OverviewActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    val options = ActivityOptions.makeBasic().setLaunchDisplayId(targetOverviewDisplay)
+                    if (swapAnimation != null) {
+                        options.update(
+                            ActivityOptions.makeCustomAnimation(
+                                this,
+                                swapAnimation.enterAnimRes,
+                                swapAnimation.exitAnimRes
+                            )
+                        )
+                    }
+                    startActivity(relaunch, options.toBundle())
+                    // singleTask moves the existing instance to the target display
+                    // via onNewIntent — do NOT finish() or the activity is destroyed.
+                } catch (_: Exception) {
+                    // If display launch fails, continue on current display.
+                }
+            }
+
+            if (swapAnimation != null) {
+                val launched = launchZoomActivity(swapAnimation)
+                if (launched) {
+                    zoomLaunchAttempted = true
+                }
+                return launched
+            }
+
+            if (!zoomLaunchAttempted) {
+                zoomLaunchAttempted = true
+                val launched = launchZoomActivity(swapAnimation)
+                if (!launched) {
+                    zoomLaunchAttempted = false
+                }
+                return launched
+            }
+            return true
+        } finally {
+            isDisplayAlignmentInProgress = false
         }
     }
 
@@ -392,11 +476,18 @@ class OverviewActivity : AppCompatActivity() {
         }
         lastScreenSwapAtMs = now
 
-        if (findSecondaryDisplayId(Display.DEFAULT_DISPLAY) == null) {
-            Toast.makeText(this, R.string.display_single, Toast.LENGTH_SHORT).show()
+        if (!DisplayRoleStore.tryAcquireScreenSwapLock(SCREEN_SWAP_GLOBAL_LOCK_MS)) {
+            scheduleSwapRetryIfNeeded()
             return
         }
 
+        if (findSecondaryDisplayId(Display.DEFAULT_DISPLAY) == null) {
+            Toast.makeText(this, R.string.display_single, Toast.LENGTH_SHORT).show()
+            DisplayRoleStore.releaseScreenSwapLock()
+            return
+        }
+
+        val previousZoomOnTop = DisplayRoleStore.isZoomOnTop(this)
         val zoomOnTop = DisplayRoleStore.toggleZoomOnTop(this)
         val toastRes = if (zoomOnTop) {
             R.string.swap_zoom_top_toast
@@ -405,7 +496,13 @@ class OverviewActivity : AppCompatActivity() {
         }
         Toast.makeText(this, toastRes, Toast.LENGTH_SHORT).show()
         zoomLaunchAttempted = false
-        alignDisplaysAndLaunchZoomIfNeeded(ScreenSwapTransition.forZoomOnTop(zoomOnTop))
+        val swapStarted = alignDisplaysAndLaunchZoomIfNeeded(
+            ScreenSwapTransition.forZoomOnTop(zoomOnTop)
+        )
+        if (!swapStarted) {
+            DisplayRoleStore.setZoomOnTop(this, previousZoomOnTop)
+            DisplayRoleStore.releaseScreenSwapLock()
+        }
     }
 
     private fun findSecondaryDisplayId(currentDisplayId: Int): Int? {
@@ -426,6 +523,22 @@ class OverviewActivity : AppCompatActivity() {
             .sortedBy { areaOf(it) }
             .firstOrNull()
             ?.displayId
+    }
+
+    private fun scheduleSwapRetryIfNeeded() {
+        if (isSwapRetryScheduled || isFinishing || isDestroyed) {
+            return
+        }
+        isSwapRetryScheduled = true
+        binding.root.postDelayed(
+            {
+                isSwapRetryScheduled = false
+                if (!isFinishing && !isDestroyed) {
+                    swapScreenRoles()
+                }
+            },
+            SCREEN_SWAP_RETRY_DELAY_MS
+        )
     }
 
     private fun areaOf(display: Display): Long {
@@ -475,10 +588,6 @@ class OverviewActivity : AppCompatActivity() {
         }
     }
 
-    private fun isBuiltinHomeUrl(url: String): Boolean {
-        return url.startsWith(BrowserSettingsStore.BUILTIN_HOME, ignoreCase = true)
-    }
-
     override fun onDestroy() {
         // Cleanup listeners to prevent memory leaks
         binding.overviewMap.onPositionRequested = null
@@ -487,6 +596,12 @@ class OverviewActivity : AppCompatActivity() {
     }
 
     companion object {
+        const val EXTRA_FORCE_SWAP_HANDOFF = "com.ayn.magni.extra.FORCE_SWAP_HANDOFF"
+        const val EXTRA_TARGET_ZOOM_ON_TOP = "com.ayn.magni.extra.TARGET_ZOOM_ON_TOP"
         private const val SCREEN_SWAP_DEBOUNCE_MS = 320L
+        private const val SCREEN_SWAP_GLOBAL_LOCK_MS = 650L
+        private const val SCREEN_SWAP_RETRY_DELAY_MS = 180L
+        private const val DISPLAY_ALIGNMENT_DEBOUNCE_MS = 420L
+        private const val PENDING_SWAP_RETRY_DELAY_MS = 120L
     }
 }
