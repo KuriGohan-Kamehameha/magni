@@ -60,7 +60,8 @@ available it automatically falls back to a fully usable single‑screen layout.
 - Kotlin codebase targeting AndroidX; minimal third‑party dependencies.
 - ProGuard minification in release builds for privacy logic and size reduction.
 - GitHub Actions CI for building and publishing releases.
-- Small APK footprint; zero telemetry or analytics.
+- Small APK footprint; a mere ~4MB download! Magni is one-third the size of a typical Chrome .apk file.
+- Zero telemetry or analytics.
 
 ## Requirements
 
