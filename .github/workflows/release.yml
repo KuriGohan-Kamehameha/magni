@@ -74,7 +74,7 @@ jobs:
           if [[ -n "${signed_apk}" && -f "${signed_apk}" ]]; then
             cp "${signed_apk}" "dist/magni-${GITHUB_REF_NAME}-release.apk"
           else
-            echo "SIGNING_KEY_BASE64 not configured — publishing unsigned release APK"
+            echo "SIGNING_KEY_BASE64 not configured - publishing unsigned release APK"
             cp app/build/outputs/apk/release/app-release-unsigned.apk "dist/magni-${GITHUB_REF_NAME}-release.apk"
           fi
           sha256sum dist/*.apk > dist/SHA256SUMS.txt
