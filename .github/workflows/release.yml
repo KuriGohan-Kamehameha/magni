@@ -54,6 +54,7 @@ jobs:
 
       - name: Sign Release APK
         id: sign
+        if: ${{ secrets.SIGNING_KEY_BASE64 != '' }}
         uses: r0adkll/sign-android-release@v1
         with:
           releaseDirectory: app/build/outputs/apk/release
@@ -69,7 +70,13 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           cp app/build/outputs/apk/debug/app-debug.apk "dist/magni-${GITHUB_REF_NAME}-debug.apk"
-          cp "${{ steps.sign.outputs.signedReleaseFile }}" "dist/magni-${GITHUB_REF_NAME}-release.apk"
+          signed_apk="${{ steps.sign.outputs.signedReleaseFile }}"
+          if [[ -n "${signed_apk}" && -f "${signed_apk}" ]]; then
+            cp "${signed_apk}" "dist/magni-${GITHUB_REF_NAME}-release.apk"
+          else
+            echo "SIGNING_KEY_BASE64 not configured — publishing unsigned release APK"
+            cp app/build/outputs/apk/release/app-release-unsigned.apk "dist/magni-${GITHUB_REF_NAME}-release.apk"
+          fi
           sha256sum dist/*.apk > dist/SHA256SUMS.txt
 
       - name: Extract Release Notes
@@ -91,3 +98,4 @@ jobs:
             dist/SHA256SUMS.txt
           body_path: /tmp/release-notes.md
           fail_on_unmatched_files: true
+          prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
