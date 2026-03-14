@@ -11,8 +11,8 @@ android {
         applicationId = "com.ayn.magni"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.1.2"
+        versionCode = 4
+        versionName = "0.1.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -20,6 +20,8 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
+            // Keep release APK lean for distribution channels like Obtainium.
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

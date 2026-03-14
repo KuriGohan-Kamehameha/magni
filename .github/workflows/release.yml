@@ -5,6 +5,10 @@ on:
     tags:
       - "v*"
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -24,8 +28,29 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build Release APK
-        run: ./gradlew :app:assembleRelease
+      - name: Validate Version Consistency
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF_NAME#v}"
+          app_version="$(grep -E 'versionName = "' app/build.gradle.kts | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')"
+
+          if [[ -z "${app_version}" ]]; then
+            echo "Could not parse app version from app/build.gradle.kts"
+            exit 1
+          fi
+
+          if [[ "${tag_version}" != "${app_version}" ]]; then
+            echo "Tag version (${tag_version}) does not match app version (${app_version})"
+            exit 1
+          fi
+
+          if ! grep -q "^## \[${app_version}\] - " CHANGELOG.md; then
+            echo "CHANGELOG.md is missing a section for ${app_version}"
+            exit 1
+          fi
+
+      - name: Build Debug and Stripped Release APKs
+        run: ./gradlew :app:assembleDebug :app:assembleRelease
 
       - name: Sign Release APK
         id: sign
@@ -39,7 +64,30 @@ jobs:
         env:
           BUILD_TOOLS_VERSION: "35.0.0"
 
+      - name: Prepare Release Assets
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/magni-${GITHUB_REF_NAME}-debug.apk"
+          cp "${{ steps.sign.outputs.signedReleaseFile }}" "dist/magni-${GITHUB_REF_NAME}-release.apk"
+          sha256sum dist/*.apk > dist/SHA256SUMS.txt
+
+      - name: Extract Release Notes
+        run: |
+          set -euo pipefail
+          app_version="${GITHUB_REF_NAME#v}"
+          awk '/^## \['"${app_version}"'\]/{flag=1;next}/^## \[/{if(flag)exit}flag' CHANGELOG.md > /tmp/release-notes.md
+          if [[ ! -s /tmp/release-notes.md ]]; then
+            echo "Release notes section for ${app_version} is empty"
+            exit 1
+          fi
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.sign.outputs.signedReleaseFile }}
+          files: |
+            dist/magni-${{ github.ref_name }}-debug.apk
+            dist/magni-${{ github.ref_name }}-release.apk
+            dist/SHA256SUMS.txt
+          body_path: /tmp/release-notes.md
+          fail_on_unmatched_files: true

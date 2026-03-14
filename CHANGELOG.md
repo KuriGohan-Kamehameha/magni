@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-03-14
+
+### Changed
+- Updated app version to `0.1.3` (`versionCode` 4).
+- Enabled resource shrinking for release builds to keep distribution APKs lean.
+- Added release workflow checks that require tag/app/changelog version consistency.
+- Release automation now publishes both debug and release APK assets plus SHA-256 checksums.
+
+### Fixed
+- Improved Obtainium compatibility by standardizing GitHub release asset naming and publishing flow.
+
 ## [0.1.2] - 2026-03-14
 
 ### Changed
@@ -50,5 +61,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic fallback to standard single-display launch when secondary display unavailable.
 - GitHub Actions CI/CD workflow for automated builds.
 
+[0.1.3]: https://github.com/kurigohan-kamehameha/magni/releases/tag/v0.1.3
 [0.1.2]: https://github.com/kurigohan-kamehameha/magni/releases/tag/v0.1.2
 [0.1.0]: https://github.com/kurigohan-kamehameha/magni/releases/tag/v0.1.0
