@@ -11,9 +11,10 @@
 
 ## ✅ Build Configuration
 - [x] ProGuard minification enabled for release builds
+- [x] Resource shrinking enabled for stripped release builds
 - [x] ProGuard rules configured properly (fixed obsolete directives)
-- [x] Release APK successfully built and minified (4.0M)
-- [x] Debug APK successfully built (5.7M)
+- [x] Release APK successfully built and minified
+- [x] Debug APK successfully built
 
 ## ✅ Documentation
 - [x] Comprehensive README.md with features, requirements, and usage
@@ -24,9 +25,9 @@
 
 ## ✅ GitHub Configuration
 - [x] .gitignore configured (build artifacts, IDE files, secrets excluded)
-- [x] GitHub Actions CI/CD workflow configured (android-ci.yml)
-- [x] CI builds both debug and release APKs
-- [x] APK artifacts uploaded in CI
+- [x] GitHub Actions release workflow validates tag/version/changelog consistency
+- [x] Release workflow publishes both debug and stripped release APK assets
+- [x] Release workflow publishes SHA-256 checksums for APK assets
 
 ## ✅ Security & Privacy
 - [x] HTTPS-only mode enforced

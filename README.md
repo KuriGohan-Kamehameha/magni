@@ -80,7 +80,12 @@ available it automatically falls back to a fully usable single‑screen layout.
    https://github.com/KuriGohan-Kamehameha/magni
    ```
 4. Tap **Add** — Obtainium will fetch the latest APK and install it.
-5. Updates are automatically detected when new GitHub releases are published.
+5. In Obtainium app settings for Magni, set APK filter regex to:
+   ```
+   .*release\.apk$
+   ```
+   This ensures Obtainium installs the stripped release asset instead of debug builds.
+6. Updates are automatically detected when new GitHub releases are published.
 
 ### 🛠 Building from Source
 
