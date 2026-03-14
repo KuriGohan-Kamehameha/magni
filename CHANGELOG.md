@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-03-14
+
+### Changed
+- Updated app version to `0.1.2` (`versionCode` 3).
+- Moved default homepage from bundled asset to `https://github.com/kurigohan-kamehameha/magni`.
+- Updated homepage settings hint to match the new default.
+
+### Fixed
+- Improved dual-display handoff stability between `OverviewActivity` and `ZoomActivity` to avoid duplicate-feeling concurrent app launches.
+- Reduced task-stack churn during screen-role swaps by reusing existing activity tasks.
+- Hardened swap lock handling so rapid repeated swaps are less likely to race.
+- Reduced overview snapshot memory pressure by tightening snapshot size budgets and max edge caps.
+
+### Removed
+- Removed legacy bundled `start_page.html` home asset.
+
 ## [0.1.0] - 2026-03-06
 
 ### Added
@@ -34,4 +50,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic fallback to standard single-display launch when secondary display unavailable.
 - GitHub Actions CI/CD workflow for automated builds.
 
-[0.1.0]: https://github.com/yourusername/ds-browser/releases/tag/v0.1.0
+[0.1.2]: https://github.com/kurigohan-kamehameha/magni/releases/tag/v0.1.2
+[0.1.0]: https://github.com/kurigohan-kamehameha/magni/releases/tag/v0.1.0

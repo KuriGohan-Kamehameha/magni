@@ -171,9 +171,7 @@ object BrowserBookmarkStore {
 
     private fun sanitizeBookmarkUrl(raw: String): String? {
         val trimmed = raw.trim()
-        if (trimmed.startsWith("about:blank", ignoreCase = true) ||
-            trimmed.startsWith(BrowserSettingsStore.BUILTIN_HOME, ignoreCase = true)
-        ) {
+        if (trimmed.startsWith("about:blank", ignoreCase = true)) {
             return null
         }
         return BrowserSettingsStore.sanitizedNavigableUrl(trimmed)

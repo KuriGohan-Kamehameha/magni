@@ -96,7 +96,7 @@ object BrowserSettingsStore {
     private const val KEY_HTTPS_ONLY_MODE = "https_only_mode"
     private const val KEY_CLEAR_DATA_ON_EXIT = "clear_data_on_exit"
 
-    const val BUILTIN_HOME = "file:///android_asset/start_page.html"
+    const val DEFAULT_HOMEPAGE_URL = "https://github.com/kurigohan-kamehameha/magni"
 
     fun load(context: Context): BrowserPreferences {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -105,7 +105,9 @@ object BrowserSettingsStore {
             accentPalette = AccentPalette.fromId(
                 prefs.getString(KEY_ACCENT_PALETTE, AccentPalette.ORANGE.id)
             ),
-            homepage = prefs.getString(KEY_HOMEPAGE, BUILTIN_HOME).orEmpty(),
+            homepage = sanitizedHomepage(
+                prefs.getString(KEY_HOMEPAGE, DEFAULT_HOMEPAGE_URL).orEmpty()
+            ),
             searchEngine = SearchEngine.fromId(
                 prefs.getString(KEY_SEARCH_ENGINE, SearchEngine.DUCKDUCKGO.id)
             ),
@@ -165,14 +167,10 @@ object BrowserSettingsStore {
     fun sanitizedHomepage(raw: String): String {
         val value = raw.trim()
         if (value.isEmpty()) {
-            return BUILTIN_HOME
+            return DEFAULT_HOMEPAGE_URL
         }
 
-        if (value.startsWith(BUILTIN_HOME, ignoreCase = true)) {
-            return BUILTIN_HOME
-        }
-
-        return sanitizedNavigableUrl(value) ?: BUILTIN_HOME
+        return sanitizedNavigableUrl(value) ?: DEFAULT_HOMEPAGE_URL
     }
 
     fun sanitizedNavigableUrl(raw: String): String? {
