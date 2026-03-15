@@ -170,10 +170,10 @@ object BrowserSettingsStore {
             return DEFAULT_HOMEPAGE_URL
         }
 
-        return sanitizedNavigableUrl(value) ?: DEFAULT_HOMEPAGE_URL
+        return sanitizedNavigableUrl(value, forceHttps = true) ?: DEFAULT_HOMEPAGE_URL
     }
 
-    fun sanitizedNavigableUrl(raw: String): String? {
+    fun sanitizedNavigableUrl(raw: String, forceHttps: Boolean = true): String? {
         val value = raw.trim()
         if (value.isEmpty()) {
             return null
@@ -189,7 +189,11 @@ object BrowserSettingsStore {
         val secureUri = when {
             parsed.scheme.equals("https", ignoreCase = true) -> parsed
             parsed.scheme.equals("http", ignoreCase = true) -> {
-                parsed.buildUpon().scheme("https").build()
+                if (forceHttps) {
+                    parsed.buildUpon().scheme("https").build()
+                } else {
+                    parsed
+                }
             }
             else -> return null
         }

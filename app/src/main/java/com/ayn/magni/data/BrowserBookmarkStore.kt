@@ -162,11 +162,10 @@ object BrowserBookmarkStore {
             )
         }
 
-        // NASA standard: use commit() for atomic writes to ensure data integrity
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_BOOKMARKS, output.toString())
-            .commit()
+            .apply()
     }
 
     private fun sanitizeBookmarkUrl(raw: String): String? {
@@ -174,7 +173,7 @@ object BrowserBookmarkStore {
         if (trimmed.startsWith("about:blank", ignoreCase = true)) {
             return null
         }
-        return BrowserSettingsStore.sanitizedNavigableUrl(trimmed)
+        return BrowserSettingsStore.sanitizedNavigableUrl(trimmed, forceHttps = false)
     }
 
     private fun generateBookmarkId(timestamp: Long, url: String): Long {
