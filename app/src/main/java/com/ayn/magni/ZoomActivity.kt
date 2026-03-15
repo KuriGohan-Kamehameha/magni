@@ -2889,6 +2889,10 @@ class ZoomActivity : AppCompatActivity() {
             ThemeMode.ELECTRIC_PURPLE -> "#C000FF"
             else -> String.format("#%06X", 0xFFFFFF and currentPreferences.accentPalette.solidColorInt())
         }
+                val readerCsp = "default-src 'none'; base-uri 'none'; form-action 'none'; " +
+                        "frame-ancestors 'none'; object-src 'none'; script-src 'none'; " +
+                        "connect-src 'none'; media-src 'none'; img-src data:; font-src 'none'; " +
+                        "style-src 'unsafe-inline'"
 
         return """
             <!DOCTYPE html>
@@ -2896,6 +2900,8 @@ class ZoomActivity : AppCompatActivity() {
             <head>
               <meta charset="utf-8" />
               <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+                            <meta http-equiv="Content-Security-Policy" content="$readerCsp" />
+                            <meta name="referrer" content="no-referrer" />
               <title>$safeTitle</title>
               <style>
                 :root {
@@ -2963,7 +2969,7 @@ class ZoomActivity : AppCompatActivity() {
               <main class="page">
                 <article class="card">
                   <h1>$safeTitle</h1>
-                  <p class="source"><a href="$safeSourceUrl">Open original page</a></p>
+                                    <p class="source"><a href="$safeSourceUrl" rel="noopener noreferrer nofollow">Open original page</a></p>
                   $content
                 </article>
               </main>
