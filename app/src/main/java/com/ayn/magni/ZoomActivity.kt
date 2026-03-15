@@ -80,7 +80,9 @@ import com.ayn.magni.ui.SyncWebView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.io.ByteArrayInputStream
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -172,6 +174,7 @@ class ZoomActivity : AppCompatActivity() {
     private var lastScreenSwapAtMs: Long = 0L
     private var isFinishingForScreenSwap: Boolean = false
     private var isSwapRetryScheduled: Boolean = false
+    private var exitDataWipeCompleted: Boolean = false
 
     private val trackerUiRefreshScheduled = AtomicBoolean(false)
     private val lastTrackerUiRefreshAtMs = AtomicLong(0L)
@@ -240,6 +243,7 @@ class ZoomActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        exitDataWipeCompleted = false
         configureImmersiveMode()
         val web = currentWebView()
         web?.onResume()
@@ -272,18 +276,21 @@ class ZoomActivity : AppCompatActivity() {
         persistTabSession(flush = true)
     }
 
+    override fun onStop() {
+        if (::currentPreferences.isInitialized) {
+            clearDataOnExitIfNeeded()
+        }
+        super.onStop()
+    }
+
     override fun onDestroy() {
         captureHandler.removeCallbacksAndMessages(null)
         if (::currentPreferences.isInitialized) {
             persistTabSession(flush = true)
         }
         uiHandler.removeCallbacksAndMessages(null)
-        if (::currentPreferences.isInitialized &&
-            isFinishing &&
-            !isFinishingForScreenSwap &&
-            (currentPreferences.privateBrowsingEnabled || currentPreferences.clearBrowsingDataOnExit)
-        ) {
-            clearAllWebData()
+        if (::currentPreferences.isInitialized) {
+            clearDataOnExitIfNeeded()
         }
 
         releaseSnapshotCache()
@@ -301,6 +308,9 @@ class ZoomActivity : AppCompatActivity() {
     @Suppress("DEPRECATION")
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN && ::currentPreferences.isInitialized) {
+            clearDataOnExitIfNeeded()
+        }
         if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
             releaseSnapshotCache()
         }
@@ -3198,7 +3208,23 @@ class ZoomActivity : AppCompatActivity() {
         }
 
         val cookieManager = CookieManager.getInstance()
-        cookieManager.removeAllCookies(null)
+        // removeAllCookies is async; await callback briefly so exit wipes are not purely best-effort.
+        val cookieClearLatch = CountDownLatch(1)
+        val removeAllSubmitted = runCatching {
+            cookieManager.removeAllCookies {
+                cookieClearLatch.countDown()
+            }
+        }.isSuccess
+        runCatching {
+            cookieManager.removeSessionCookies {
+                cookieClearLatch.countDown()
+            }
+        }
+        if (removeAllSubmitted) {
+            runCatching {
+                cookieClearLatch.await(COOKIE_CLEAR_WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            }
+        }
         cookieManager.flush()
 
         WebStorage.getInstance().deleteAllData()
@@ -3211,6 +3237,20 @@ class ZoomActivity : AppCompatActivity() {
                 clearUsernamePassword()
             }
         }
+    }
+
+    private fun clearDataOnExitIfNeeded() {
+        if (exitDataWipeCompleted || !shouldClearDataOnExit()) {
+            return
+        }
+        clearAllWebData()
+        exitDataWipeCompleted = true
+    }
+
+    private fun shouldClearDataOnExit(): Boolean {
+        return !isFinishingForScreenSwap &&
+            (isFinishing || currentPreferences.privateBrowsingEnabled) &&
+            (currentPreferences.privateBrowsingEnabled || currentPreferences.clearBrowsingDataOnExit)
     }
 
     private fun clearBrowsingDataNow() {
@@ -3288,6 +3328,7 @@ class ZoomActivity : AppCompatActivity() {
         private const val MAX_TABS = 10
         private const val MAX_TRUSTED_EXTERNAL_HOSTS = 64
         private const val TOAST_COOLDOWN_MS = 1800L
+        private const val COOKIE_CLEAR_WAIT_TIMEOUT_MS = 400L
         private const val SCREEN_SWAP_DEBOUNCE_MS = 320L
         private const val SCREEN_SWAP_GLOBAL_LOCK_MS = 650L
         private const val SCREEN_SWAP_RETRY_DELAY_MS = 180L
