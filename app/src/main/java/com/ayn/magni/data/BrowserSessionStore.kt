@@ -47,16 +47,19 @@ object BrowserSessionStore {
         val maxIterations = minOf(tabsArray.length(), MAX_SESSION_TABS * 2)
         for (index in 0 until maxIterations) {
             val item = tabsArray.optJSONObject(index) ?: continue
-            val url = item.optString("url").trim()
+            val rawUrl = item.optString("url").trim()
             // NASA standard: validate input bounds
-            if (url.isBlank() || url.length > MAX_URL_LENGTH) {
+            if (rawUrl.isBlank() || rawUrl.length > MAX_URL_LENGTH) {
                 continue
             }
-            if (!seenUrls.add(url)) {
+            val sanitizedUrl = BrowserSettingsStore.sanitizedNavigableUrl(
+                rawUrl
+            ) ?: continue
+            if (!seenUrls.add(sanitizedUrl)) {
                 continue
             }
             tabs += SessionTab(
-                url = url,
+                url = sanitizedUrl,
                 title = item.optString("title", "").trim().take(MAX_TITLE_LENGTH),
                 pinned = item.optBoolean("pinned", false)
             )
@@ -80,13 +83,18 @@ object BrowserSessionStore {
             // NASA standard: validate input bounds
             if (normalizedUrl.isBlank() || normalizedUrl.length > MAX_URL_LENGTH) {
                 null
-            } else if (!seenUrls.add(normalizedUrl)) {
-                null
             } else {
-                tab.copy(
-                    url = normalizedUrl,
-                    title = tab.title.trim().take(MAX_TITLE_LENGTH)
-                )
+                val safeUrl = BrowserSettingsStore.sanitizedNavigableUrl(
+                    normalizedUrl
+                ) ?: return@mapNotNull null
+                if (!seenUrls.add(safeUrl)) {
+                    null
+                } else {
+                    tab.copy(
+                        url = safeUrl,
+                        title = tab.title.trim().take(MAX_TITLE_LENGTH)
+                    )
+                }
             }
         }.take(MAX_SESSION_TABS)
 
