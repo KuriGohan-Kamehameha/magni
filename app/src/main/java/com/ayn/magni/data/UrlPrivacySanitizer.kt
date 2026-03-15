@@ -58,7 +58,7 @@ object UrlPrivacySanitizer {
         "icid_",
         "itm_",
         "mc_",
-        "WT.",
+        "wt.",
         "__hstc",
         "__hssc",
         "__hsfp",
