@@ -48,6 +48,14 @@
     <string name="url_dialog_paste_go">Paste &amp; Go</string>
     <string name="url_dialog_cancel">Cancel</string>
     <string name="url_dialog_clipboard_empty">Clipboard is empty.</string>
+    <string name="external_link_prompt_title">Open external link?</string>
+    <string name="external_link_prompt_message">Another app requested this site:\n%1$s</string>
+    <string name="external_link_prompt_open">Open</string>
+    <string name="external_link_untrusted_title">Untrusted external link</string>
+    <string name="external_link_untrusted_message">This host is not trusted yet:\n%1$s\n\nChoose Open Once, or Trust and Open to allow this host in future prompts.</string>
+    <string name="external_link_prompt_open_once">Open Once</string>
+    <string name="external_link_prompt_trust_and_open">Trust &amp; Open</string>
+    <string name="external_link_host_trusted_toast">Host added to trusted external links.</string>
     <string name="blocked_navigation_toast">Blocked navigation to a non-private URL.</string>
     <string name="blocked_insecure_http_toast">Blocked insecure HTTP page (HTTPS-Only mode).</string>
     <string name="url_copy_unavailable_toast">No page URL available to copy.</string>

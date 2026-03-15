@@ -67,6 +67,7 @@ import com.ayn.magni.data.BrowserPreferences
 import com.ayn.magni.data.BrowserSessionStore
 import com.ayn.magni.data.BrowserSettingsStore
 import com.ayn.magni.data.DisplayRoleStore
+import com.ayn.magni.data.SecureBrowserPrefs
 import com.ayn.magni.data.SessionTab
 import com.ayn.magni.data.ThemeMode
 import com.ayn.magni.data.TrackerBlocker
@@ -716,12 +717,18 @@ class ZoomActivity : AppCompatActivity() {
         }
         showThrottledToast(toastRes, TOAST_COOLDOWN_MS)
         persistTabSession(flush = true)
-        val swapAnimation = ScreenSwapTransition.forZoomOnTop(zoomOnTop)
+        val swapAnimation = ScreenSwapTransition.forCurrentScreenOnTop(
+            isCurrentScreenOnTop = isCurrentScreenOnTop()
+        )
 
         val relaunch = Intent(this, OverviewActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             putExtra(OverviewActivity.EXTRA_FORCE_SWAP_HANDOFF, true)
             putExtra(OverviewActivity.EXTRA_TARGET_ZOOM_ON_TOP, zoomOnTop)
+            putExtra(
+                OverviewActivity.EXTRA_SWAP_HANDOFF_TOKEN,
+                DisplayRoleStore.issueSwapHandoffToken()
+            )
         }
         val started = launchOverviewOnDisplay(
             intent = relaunch,
@@ -792,6 +799,19 @@ class ZoomActivity : AppCompatActivity() {
             .firstOrNull()
     }
 
+    private fun currentDisplayId(): Int {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            display?.displayId ?: Display.DEFAULT_DISPLAY
+        } else {
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.displayId
+        }
+    }
+
+    private fun isCurrentScreenOnTop(): Boolean {
+        return currentDisplayId() == Display.DEFAULT_DISPLAY
+    }
+
     private fun launchOverviewOnDisplay(
         intent: Intent,
         targetDisplayId: Int,
@@ -808,6 +828,7 @@ class ZoomActivity : AppCompatActivity() {
             )
             val startedWithDisplay = runCatching {
                 startActivity(intent, options.toBundle())
+                applySwapAnimationOverride(animation)
             }.isSuccess
             if (startedWithDisplay) {
                 return true
@@ -821,7 +842,15 @@ class ZoomActivity : AppCompatActivity() {
         )
         return runCatching {
             startActivity(intent, fallbackOptions.toBundle())
+            applySwapAnimationOverride(animation)
         }.isSuccess
+    }
+
+    @Suppress("DEPRECATION")
+    private fun applySwapAnimationOverride(animation: ScreenSwapAnimation) {
+        runCatching {
+            overridePendingTransition(animation.enterAnimRes, animation.exitAnimRes)
+        }
     }
 
     private fun toggleUrlBarVisibility() {
@@ -1396,10 +1425,9 @@ class ZoomActivity : AppCompatActivity() {
             }
         }
 
-        webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
+        webView.setDownloadListener { url, _, contentDisposition, mimeType, contentLength ->
             handleDownloadAttempt(
                 rawUrl = url,
-                userAgent = userAgent,
                 contentDisposition = contentDisposition,
                 mimeType = mimeType,
                 contentLength = contentLength
@@ -1909,7 +1937,49 @@ class ZoomActivity : AppCompatActivity() {
         }
 
         val normalizedUrl = normalizeMainFrameUrl(intent.data) ?: return
-        loadUrlInCurrentTab(normalizedUrl)
+        val host = parseUriSafely(normalizedUrl)?.host
+        showExternalViewConfirmation(normalizedUrl, host)
+    }
+
+    private fun showExternalViewConfirmation(url: String, rawHost: String?) {
+        if (isFinishing || isDestroyed) {
+            return
+        }
+
+        val normalizedHost = normalizeHost(rawHost)
+        val hostLabel = normalizedHost ?: url
+        if (normalizedHost != null && isTrustedExternalHost(normalizedHost)) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.external_link_prompt_title)
+                .setMessage(getString(R.string.external_link_prompt_message, hostLabel))
+                .setPositiveButton(R.string.external_link_prompt_open) { _, _ ->
+                    loadUrlInCurrentTab(url)
+                }
+                .setNegativeButton(R.string.url_dialog_cancel, null)
+                .show()
+            return
+        }
+
+        val builder = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.external_link_untrusted_title)
+            .setMessage(getString(R.string.external_link_untrusted_message, hostLabel))
+            .setPositiveButton(R.string.external_link_prompt_open_once) { _, _ ->
+                loadUrlInCurrentTab(url)
+            }
+            .setNegativeButton(R.string.url_dialog_cancel, null)
+
+        if (normalizedHost != null) {
+            builder.setNeutralButton(R.string.external_link_prompt_trust_and_open) { _, _ ->
+                rememberTrustedExternalHost(normalizedHost)
+                showThrottledToast(
+                    R.string.external_link_host_trusted_toast,
+                    TOAST_COOLDOWN_MS
+                )
+                loadUrlInCurrentTab(url)
+            }
+        }
+
+        builder.show()
     }
 
     private fun loadUrlInCurrentTab(url: String) {
@@ -1984,7 +2054,8 @@ class ZoomActivity : AppCompatActivity() {
         @Suppress("DEPRECATION")
         with(webView.settings) {
             javaScriptEnabled = prefs.javascriptEnabled
-            domStorageEnabled = true
+            // Prevent persistent Web Storage writes while private browsing is enabled.
+            domStorageEnabled = !prefs.privateBrowsingEnabled
             databaseEnabled = false
             useWideViewPort = true
             loadWithOverviewMode = true
@@ -1994,7 +2065,7 @@ class ZoomActivity : AppCompatActivity() {
             javaScriptCanOpenWindowsAutomatically = false
             mediaPlaybackRequiresUserGesture = true
             allowContentAccess = false
-            allowFileAccess = true
+            allowFileAccess = false
             allowFileAccessFromFileURLs = false
             allowUniversalAccessFromFileURLs = false
             setGeolocationEnabled(false)
@@ -2597,7 +2668,6 @@ class ZoomActivity : AppCompatActivity() {
 
     private fun handleDownloadAttempt(
         rawUrl: String?,
-        userAgent: String?,
         contentDisposition: String?,
         mimeType: String?,
         contentLength: Long
@@ -2658,35 +2728,19 @@ class ZoomActivity : AppCompatActivity() {
                 if (!mimeType.isNullOrBlank()) {
                     setMimeType(mimeType)
                 }
-                if (!userAgent.isNullOrBlank()) {
-                    runCatching { addRequestHeader("User-Agent", userAgent) }
-                }
                 if (shouldSendPrivacySignals()) {
                     runCatching { addRequestHeader("DNT", "1") }
                     runCatching { addRequestHeader("Sec-GPC", "1") }
                 }
-                val cookies = CookieManager.getInstance().getCookie(safeUrl)
-                if (!cookies.isNullOrBlank()) {
-                    runCatching { addRequestHeader("Cookie", cookies) }
-                }
-
-                val publicDestinationSet = runCatching {
-                    setDestinationInExternalPublicDir(
+                val appDestinationSet = runCatching {
+                    setDestinationInExternalFilesDir(
+                        this@ZoomActivity,
                         Environment.DIRECTORY_DOWNLOADS,
                         resolvedFileName
                     )
                 }.isSuccess
-                if (!publicDestinationSet) {
-                    val appDestinationSet = runCatching {
-                        setDestinationInExternalFilesDir(
-                            this@ZoomActivity,
-                            Environment.DIRECTORY_DOWNLOADS,
-                            resolvedFileName
-                        )
-                    }.isSuccess
-                    if (!appDestinationSet) {
-                        throw IllegalStateException("No writable destination for download")
-                    }
+                if (!appDestinationSet) {
+                    throw IllegalStateException("No writable destination for download")
                 }
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -3003,6 +3057,68 @@ class ZoomActivity : AppCompatActivity() {
         return runCatching { Uri.parse(value) }.getOrNull()
     }
 
+    private fun normalizeHost(rawHost: String?): String? {
+        val normalized = rawHost
+            ?.trim()
+            ?.trimEnd('.')
+            ?.lowercase()
+            .orEmpty()
+        if (normalized.isBlank()) {
+            return null
+        }
+        if (normalized.any { it.isWhitespace() }) {
+            return null
+        }
+        return normalized
+    }
+
+    private fun trustedExternalHosts(): Set<String> {
+        val trusted = mutableSetOf<String>()
+
+        normalizeHost(parseUriSafely(homeUrl())?.host)?.let(trusted::add)
+        normalizeHost(parseUriSafely(BrowserSettingsStore.DEFAULT_HOMEPAGE_URL)?.host)
+            ?.let(trusted::add)
+        normalizeHost(parseUriSafely(currentPreferences.searchEngine.queryUrl("magni"))?.host)
+            ?.let(trusted::add)
+
+        val raw = SecureBrowserPrefs
+            .get(this)
+            .getString(KEY_TRUSTED_EXTERNAL_HOSTS, "[]")
+            .orEmpty()
+        runCatching {
+            val array = JSONArray(raw)
+            val count = min(array.length(), MAX_TRUSTED_EXTERNAL_HOSTS)
+            for (index in 0 until count) {
+                normalizeHost(array.optString(index))?.let(trusted::add)
+            }
+        }
+
+        return trusted
+    }
+
+    private fun isTrustedExternalHost(host: String): Boolean {
+        val normalizedHost = normalizeHost(host) ?: return false
+        val trusted = trustedExternalHosts()
+        return trusted.any { trustedHost ->
+            normalizedHost == trustedHost || normalizedHost.endsWith(".$trustedHost")
+        }
+    }
+
+    private fun rememberTrustedExternalHost(host: String) {
+        val normalizedHost = normalizeHost(host) ?: return
+        val updated = trustedExternalHosts()
+            .plus(normalizedHost)
+            .sorted()
+            .take(MAX_TRUSTED_EXTERNAL_HOSTS)
+
+        val output = JSONArray()
+        updated.forEach { output.put(it) }
+        SecureBrowserPrefs.get(this)
+            .edit()
+            .putString(KEY_TRUSTED_EXTERNAL_HOSTS, output.toString())
+            .apply()
+    }
+
     private fun isUnsafeSubresourceUri(uri: Uri): Boolean {
         val scheme = uri.scheme?.lowercase() ?: return true
         return scheme == "content" ||
@@ -3162,7 +3278,9 @@ class ZoomActivity : AppCompatActivity() {
 
     companion object {
         private const val READER_MODE_BASE_URL = "https://reader.magni.local/"
+        private const val KEY_TRUSTED_EXTERNAL_HOSTS = "trusted_external_hosts"
         private const val MAX_TABS = 10
+        private const val MAX_TRUSTED_EXTERNAL_HOSTS = 64
         private const val TOAST_COOLDOWN_MS = 1800L
         private const val SCREEN_SWAP_DEBOUNCE_MS = 320L
         private const val SCREEN_SWAP_GLOBAL_LOCK_MS = 650L
