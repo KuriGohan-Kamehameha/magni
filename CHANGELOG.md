@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5-alpha] - 2026-03-15
+
+### Fixed
+- URL preservation: history, bookmarks, and session no longer silently upgrade HTTP→HTTPS when HTTPS-Only mode is disabled.
+- Tracking parameter stripping: WebTrends (`wt.*`) parameters now correctly matched after lower-casing normalization.
+- WebView scroll listener no longer lost during tab-switch animations when the view is temporarily detached.
+- SharedPreferences history and bookmark writes switched to `apply()` (async) to eliminate main-thread stalls during heavy browsing.
+
 ## [0.1.4-alpha] - 2026-03-14
 
 ### Changed

@@ -53,7 +53,7 @@ object BrowserSessionStore {
                 continue
             }
             val sanitizedUrl = BrowserSettingsStore.sanitizedNavigableUrl(
-                rawUrl
+                rawUrl, forceHttps = false
             ) ?: continue
             if (!seenUrls.add(sanitizedUrl)) {
                 continue
@@ -85,7 +85,7 @@ object BrowserSessionStore {
                 null
             } else {
                 val safeUrl = BrowserSettingsStore.sanitizedNavigableUrl(
-                    normalizedUrl
+                    normalizedUrl, forceHttps = false
                 ) ?: return@mapNotNull null
                 if (!seenUrls.add(safeUrl)) {
                     null

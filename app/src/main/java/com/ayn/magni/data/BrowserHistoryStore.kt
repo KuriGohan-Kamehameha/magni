@@ -47,7 +47,7 @@ object BrowserHistoryStore {
             if (rawUrl.length > MAX_URL_LENGTH) {
                 continue
             }
-            val url = BrowserSettingsStore.sanitizedNavigableUrl(rawUrl) ?: continue
+            val url = BrowserSettingsStore.sanitizedNavigableUrl(rawUrl, forceHttps = false) ?: continue
             if (url.isBlank()) {
                 continue
             }
@@ -70,7 +70,7 @@ object BrowserHistoryStore {
             if (url.length > MAX_URL_LENGTH || title.length > MAX_TITLE_LENGTH * 2) {
                 return
             }
-            val safeUrl = BrowserSettingsStore.sanitizedNavigableUrl(url) ?: return
+            val safeUrl = BrowserSettingsStore.sanitizedNavigableUrl(url, forceHttps = false) ?: return
             if (safeUrl.startsWith("about:blank")) {
                 return
             }
@@ -125,11 +125,10 @@ object BrowserHistoryStore {
             )
         }
 
-        // NASA standard: use commit() for atomic writes to ensure data integrity
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_HISTORY, output.toString())
-            .commit()
+            .apply()
     }
 
     private fun generateEntryId(timestamp: Long, url: String): Long {
