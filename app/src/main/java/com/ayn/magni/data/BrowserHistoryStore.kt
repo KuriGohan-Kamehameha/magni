@@ -12,7 +12,6 @@ data class HistoryEntry(
 )
 
 object BrowserHistoryStore {
-    private const val PREFS_NAME = "browser_prefs"
     private const val KEY_HISTORY = "history_items"
     private const val MAX_ENTRIES = 250
     // NASA standard: explicit bounds constants
@@ -22,9 +21,7 @@ object BrowserHistoryStore {
     private val historyAccessLock = Any()
 
     fun list(context: Context): List<HistoryEntry> {
-        val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_HISTORY, "[]")
-            .orEmpty()
+        val raw = safeGetHistoryRaw(context)
 
         // NASA standard: validate input length before parsing
         if (raw.length > 1_000_000) {
@@ -66,11 +63,15 @@ object BrowserHistoryStore {
 
     fun add(context: Context, title: String, url: String, visitedAt: Long = System.currentTimeMillis()) {
         return synchronized(historyAccessLock) {
+            val normalizedUrl = url.trim()
+            val normalizedTitle = title.trim()
             // NASA standard: strict input validation with bounds
-            if (url.length > MAX_URL_LENGTH || title.length > MAX_TITLE_LENGTH * 2) {
+            if (normalizedUrl.length > MAX_URL_LENGTH || normalizedTitle.length > MAX_TITLE_LENGTH * 2) {
                 return
             }
-            val safeUrl = BrowserSettingsStore.sanitizedNavigableUrl(url, forceHttps = false) ?: return
+            val safeUrl = BrowserSettingsStore
+                .sanitizedNavigableUrl(normalizedUrl, forceHttps = false)
+                ?: return
             if (safeUrl.startsWith("about:blank")) {
                 return
             }
@@ -83,7 +84,7 @@ object BrowserHistoryStore {
                 0,
                 HistoryEntry(
                     id = generateEntryId(visitedAt, safeUrl),
-                    title = title.ifBlank { safeUrl }.take(MAX_TITLE_LENGTH),
+                    title = normalizedTitle.ifBlank { safeUrl }.take(MAX_TITLE_LENGTH),
                     url = safeUrl,
                     visitedAt = visitedAt.coerceAtLeast(0L)
                 )
@@ -105,10 +106,12 @@ object BrowserHistoryStore {
     }
 
     fun clear(context: Context) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_HISTORY, "[]")
-            .apply()
+        synchronized(historyAccessLock) {
+            SecureBrowserPrefs.get(context)
+                .edit()
+                .putString(KEY_HISTORY, "[]")
+                .commit()
+        }
     }
 
     private fun save(context: Context, items: List<HistoryEntry>) {
@@ -125,17 +128,22 @@ object BrowserHistoryStore {
             )
         }
 
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        SecureBrowserPrefs.get(context)
             .edit()
             .putString(KEY_HISTORY, output.toString())
-            .apply()
+            .commit()
     }
 
     private fun generateEntryId(timestamp: Long, url: String): Long {
         val safeTimestamp = timestamp.coerceAtLeast(1L)
         // Use a combination of timestamp and URL hash to reduce collisions
-        val urlHash = url.hashCode().toLong() and 0xFFFFFFFFL
+        val urlHash = (url.hashCode().toLong() and 0xFFFFFFFFL) xor (url.length.toLong() shl 32)
         val combined = safeTimestamp xor urlHash
-        return (combined and Long.MAX_VALUE).takeIf { it != 0L } ?: safeTimestamp
+        return (combined and Long.MAX_VALUE).takeIf { it != 0L } ?: (safeTimestamp * 31L)
+    }
+
+    private fun safeGetHistoryRaw(context: Context): String {
+        val prefs = SecureBrowserPrefs.get(context)
+        return runCatching { prefs.getString(KEY_HISTORY, "[]") }.getOrNull().orEmpty()
     }
 }

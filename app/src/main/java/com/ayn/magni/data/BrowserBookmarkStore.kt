@@ -13,7 +13,6 @@ data class BookmarkEntry(
 )
 
 object BrowserBookmarkStore {
-    private const val PREFS_NAME = "browser_prefs"
     private const val KEY_BOOKMARKS = "bookmark_items"
     private const val MAX_ENTRIES = 500
     // NASA standard: explicit bounds constants
@@ -23,9 +22,7 @@ object BrowserBookmarkStore {
     private val bookmarkAccessLock = Any()
 
     fun list(context: Context): List<BookmarkEntry> {
-        val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_BOOKMARKS, "[]")
-            .orEmpty()
+        val raw = safeGetBookmarksRaw(context)
 
         // NASA standard: validate input length before parsing
         if (raw.length > 2_000_000) {
@@ -39,6 +36,7 @@ object BrowserBookmarkStore {
         }
 
         val entries = mutableListOf<BookmarkEntry>()
+        val seenUrls = HashSet<String>()
         // NASA standard: fixed loop bounds
         val maxIterations = minOf(array.length(), MAX_JSON_PARSE_ITERATIONS)
         for (index in 0 until maxIterations) {
@@ -52,6 +50,9 @@ object BrowserBookmarkStore {
             if (url.isBlank()) {
                 continue
             }
+            if (!seenUrls.add(url)) {
+                continue
+            }
 
             entries += BookmarkEntry(
                 id = item.optLong("id", 0L).takeIf { it > 0L }
@@ -63,13 +64,13 @@ object BrowserBookmarkStore {
             )
         }
 
-        return entries
-            .distinctBy { it.url }
-            .sortedWith(compareByDescending<BookmarkEntry> { it.favorite }.thenByDescending { it.addedAt })
+        return entries.sortedWith(
+            compareByDescending<BookmarkEntry> { it.favorite }.thenByDescending { it.addedAt }
+        )
     }
 
     fun findByUrl(context: Context, url: String): BookmarkEntry? {
-        val target = url.trim()
+        val target = sanitizeBookmarkUrl(url) ?: return null
         if (target.isBlank()) {
             return null
         }
@@ -85,7 +86,8 @@ object BrowserBookmarkStore {
         return synchronized(bookmarkAccessLock) {
             val target = sanitizeBookmarkUrl(url) ?: return null
             val now = System.currentTimeMillis()
-            val existing = findByUrl(context, target)
+            val existingEntries = list(context)
+            val existing = existingEntries.firstOrNull { it.url == target }
             val resolvedTitle = title.ifBlank {
                 existing?.title?.ifBlank { target } ?: target
             }
@@ -105,7 +107,7 @@ object BrowserBookmarkStore {
                 )
             }
 
-            val merged = list(context)
+            val merged = existingEntries
                 .filterNot { it.url == target }
                 .toMutableList()
             merged.add(0, updated)
@@ -117,10 +119,11 @@ object BrowserBookmarkStore {
     fun toggleFavorite(context: Context, title: String, url: String): Boolean {
         return synchronized(bookmarkAccessLock) {
             val target = sanitizeBookmarkUrl(url) ?: return false
-            val existing = findByUrl(context, target) ?: return false
+            val existingEntries = list(context)
+            val existing = existingEntries.firstOrNull { it.url == target } ?: return false
             val nextFavorite = !existing.favorite
             val updated = existing.copy(favorite = nextFavorite)
-            val merged = list(context)
+            val merged = existingEntries
                 .filterNot { it.url == target }
                 .toMutableList()
             merged.add(0, updated)
@@ -141,10 +144,12 @@ object BrowserBookmarkStore {
     }
 
     fun clear(context: Context) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_BOOKMARKS, "[]")
-            .apply()
+        synchronized(bookmarkAccessLock) {
+            SecureBrowserPrefs.get(context)
+                .edit()
+                .putString(KEY_BOOKMARKS, "[]")
+                .commit()
+        }
     }
 
     private fun save(context: Context, items: List<BookmarkEntry>) {
@@ -162,10 +167,10 @@ object BrowserBookmarkStore {
             )
         }
 
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        SecureBrowserPrefs.get(context)
             .edit()
             .putString(KEY_BOOKMARKS, output.toString())
-            .apply()
+            .commit()
     }
 
     private fun sanitizeBookmarkUrl(raw: String): String? {
@@ -180,5 +185,10 @@ object BrowserBookmarkStore {
         val safeTimestamp = timestamp.coerceAtLeast(1L)
         val urlHash = url.hashCode().toLong() and 0xFFFFFFFFL
         return ((safeTimestamp shl 16) xor (urlHash and 0xFFFFL)) and Long.MAX_VALUE
+    }
+
+    private fun safeGetBookmarksRaw(context: Context): String {
+        val prefs = SecureBrowserPrefs.get(context)
+        return runCatching { prefs.getString(KEY_BOOKMARKS, "[]") }.getOrNull().orEmpty()
     }
 }

@@ -4,11 +4,23 @@
     android:layout_height="match_parent"
     android:background="@color/retro_shell">
 
-    <FrameLayout
-        android:id="@+id/webContainer"
+    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        android:id="@+id/swipeRefresh"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <FrameLayout
+            android:id="@+id/webContainer"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@color/retro_inner" />
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+    <com.ayn.magni.ui.CursorOverlayView
+        android:id="@+id/cursorOverlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@color/retro_inner" />
+        android:visibility="gone" />
 
     <ProgressBar
         android:id="@+id/loadProgress"
@@ -34,7 +46,8 @@
         android:paddingHorizontal="7dp"
         android:paddingVertical="3dp"
         android:textColor="@color/retro_text"
-        android:textSize="10sp" />
+        android:textSize="10sp"
+        android:visibility="gone" />
 
     <View
         android:id="@+id/toolbarHandle"
@@ -50,7 +63,7 @@
     <LinearLayout
         android:id="@+id/toolbar"
         android:layout_width="match_parent"
-        android:layout_height="88dp"
+        android:layout_height="74dp"
         android:layout_gravity="bottom"
         android:background="@color/retro_toolbar"
         android:orientation="vertical"
@@ -61,8 +74,7 @@
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_height="match_parent"
             android:orientation="horizontal">
 
             <Button
@@ -70,34 +82,41 @@
                 style="@style/RetroToolbarButton"
                 android:layout_marginEnd="3dp"
                 android:contentDescription="@string/accessibility_back_button"
-                android:text="@string/button_back" />
+                android:text="@string/button_back"
+                android:visibility="gone" />
 
             <Button
                 android:id="@+id/forwardButton"
                 style="@style/RetroToolbarButton"
                 android:layout_marginEnd="3dp"
                 android:contentDescription="@string/accessibility_forward_button"
-                android:text="@string/button_forward" />
+                android:text="@string/button_forward"
+                android:visibility="gone" />
 
             <Button
                 android:id="@+id/reloadButton"
                 style="@style/RetroToolbarButton"
                 android:layout_marginEnd="3dp"
                 android:contentDescription="@string/accessibility_reload_button"
-                android:text="@string/button_reload" />
+                android:text="@string/button_reload"
+                android:visibility="gone" />
 
             <Button
                 android:id="@+id/urlButton"
                 style="@style/RetroToolbarButton"
-                android:layout_marginEnd="3dp"
+                android:layout_height="match_parent"
+                android:layout_marginEnd="0dp"
                 android:contentDescription="@string/accessibility_url_button"
-                android:text="@string/button_url" />
+                android:text="@string/url_bar_placeholder"
+                android:textAllCaps="false"
+                android:textSize="13sp" />
 
             <Button
                 android:id="@+id/homeButton"
                 style="@style/RetroToolbarButton"
                 android:contentDescription="@string/accessibility_home_button"
-                android:text="@string/button_home" />
+                android:text="@string/button_home"
+                android:visibility="gone" />
         </LinearLayout>
 
         <HorizontalScrollView
@@ -106,7 +125,8 @@
             android:layout_marginTop="4dp"
             android:layout_weight="1"
             android:fillViewport="true"
-            android:scrollbars="none">
+            android:scrollbars="none"
+            android:visibility="gone">
 
             <LinearLayout
                 android:layout_width="wrap_content"

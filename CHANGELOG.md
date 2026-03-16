@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6-alpha] - 2026-03-15
+
+### Added
+- Pull-to-refresh on the zoom browser screen with top-of-page gating and themed refresh indicators.
+- Trackpad/mousepad interaction suite: bottom-screen trackpad surface, top-screen cursor overlay, and optional OLED blackout feedback effects.
+- New customization options in settings for cursor shape, bottom feedback effect, frame rate mode, and toolbar pill edge.
+- Secure encrypted preferences storage with migration from legacy unencrypted preferences.
+
+### Changed
+- Updated app version to `0.1.6-alpha` (`versionCode` 7).
+- Release workflow now requires signing secrets and fails fast when signed APK output is missing.
+- GitHub Actions workflow dependencies pinned to commit SHAs and permissions tightened.
+
+### Fixed
+- Stabilized dual-display handoff and swap animation direction handling between overview and zoom screens.
+- Improved lifecycle cleanup for dialogs, delayed callbacks, and WebView teardown to reduce leaks and race conditions.
+- Hardened URL/session/history/bookmark parsing and persistence paths with stricter bounds and safer error handling.
+
 ## [0.1.5-alpha] - 2026-03-15
 
 ### Fixed
@@ -76,6 +94,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic fallback to standard single-display launch when secondary display unavailable.
 - GitHub Actions CI/CD workflow for automated builds.
 
+[0.1.6-alpha]: https://github.com/kurigohan-kamehameha/magni/releases/tag/v0.1.6-alpha
+[0.1.5-alpha]: https://github.com/kurigohan-kamehameha/magni/releases/tag/v0.1.5-alpha
 [0.1.3]: https://github.com/kurigohan-kamehameha/magni/releases/tag/v0.1.3
 [0.1.2]: https://github.com/kurigohan-kamehameha/magni/releases/tag/v0.1.2
 [0.1.0]: https://github.com/kurigohan-kamehameha/magni/releases/tag/v0.1.0

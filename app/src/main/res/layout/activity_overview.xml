@@ -23,6 +23,16 @@
             android:importantForAccessibility="yes"
             android:padding="6dp" />
 
+        <com.ayn.magni.ui.BrowserTrackpadView
+            android:id="@+id/trackpadView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/accessibility_trackpad"
+            android:importantForAccessibility="yes"
+            android:padding="6dp"
+            android:visibility="gone" />
+
         <LinearLayout
             android:id="@+id/overviewTopBar"
             android:layout_width="match_parent"
@@ -81,6 +91,19 @@
                 android:textStyle="bold" />
 
             <Button
+                android:id="@+id/overviewModeButton"
+                android:layout_width="58dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/retro_button_background"
+                android:fontFamily="monospace"
+                android:padding="0dp"
+                android:text="@string/button_trackpad"
+                android:textColor="@color/retro_text"
+                android:textSize="10sp"
+                android:textStyle="bold" />
+
+            <Button
                 android:id="@+id/overviewSettingsButton"
                 android:layout_width="64dp"
                 android:layout_height="34dp"
@@ -93,6 +116,12 @@
                 android:textSize="11sp"
                 android:textStyle="bold" />
         </LinearLayout>
+
+        <com.ayn.magni.ui.OledBlackoutView
+            android:id="@+id/oledBlackoutView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
     </FrameLayout>
 
 </LinearLayout>

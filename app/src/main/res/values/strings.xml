@@ -14,6 +14,15 @@
     <string name="meta_template">%1$s  |  %2$d%%</string>
     <string name="overview_zoom_default">MAP 100%</string>
     <string name="overview_zoom_template">MAP %1$d%%</string>
+    <string name="trackpad_mode_badge">TRACKPAD</string>
+    <string name="trackpad_primary_hint">Tap to click. Hold for page actions.</string>
+    <string name="trackpad_secondary_hint">One finger moves the cursor. Two fingers scroll or pinch to zoom. Tap with two fingers for page actions.</string>
+    <string name="mousepad_mode_enabled_toast">Mousepad mode enabled.</string>
+    <string name="mousepad_mode_disabled_toast">Mousepad mode disabled.</string>
+    <string name="bottom_screen_off_toast">Bottom screen off.</string>
+    <string name="bottom_screen_on_toast">Bottom screen on.</string>
+    <string name="top_display_detached_self_contained_toast">Top display left Magni. Continuing in standalone mode.</string>
+    <string name="top_display_detached_exit_toast">Top display left Magni. Closing controller screen.</string>
 
     <string name="button_back">◀</string>
     <string name="button_forward">▶</string>
@@ -29,6 +38,8 @@
     <string name="button_desktop_on">DESK*</string>
     <string name="button_reader">READ</string>
     <string name="button_reader_on">READ*</string>
+    <string name="button_trackpad">PAD</string>
+    <string name="button_trackpad_on">PAD*</string>
     <string name="button_zoom_reset">100%</string>
     <string name="button_zoom_out">-</string>
     <string name="button_zoom_in">+</string>
@@ -44,6 +55,7 @@
 
     <string name="url_dialog_title">Open Address</string>
     <string name="url_dialog_hint">https://example.com</string>
+    <string name="url_bar_placeholder">Search or enter address</string>
     <string name="url_dialog_go">Go</string>
     <string name="url_dialog_paste_go">Paste &amp; Go</string>
     <string name="url_dialog_cancel">Cancel</string>
@@ -104,7 +116,25 @@
     <string name="settings_theme_dsi_classic">DSi Classic</string>
     <string name="settings_theme_dsi_classic_dark">DSi Classic Dark</string>
     <string name="settings_accent_color">Accent Color</string>
+    <string name="settings_cursor_shape">Cursor Shape</string>
+    <string name="settings_cursor_shape_crosshair">Crosshair</string>
+    <string name="settings_cursor_shape_dot">Dot</string>
+    <string name="settings_cursor_shape_ring">Ring</string>
+    <string name="settings_bottom_feedback_effect">Bottom screen feedback effect</string>
+    <string name="settings_bottom_feedback_aurora">Aurora pulse</string>
+    <string name="settings_bottom_feedback_ring">Classic ring</string>
+    <string name="settings_bottom_feedback_comet">Comet trail</string>
+    <string name="settings_bottom_feedback_pixel">Pixel burst</string>
+    <string name="settings_frame_rate">Frame Rate</string>
+    <string name="settings_frame_rate_30">30 FPS (Stable)</string>
+    <string name="settings_frame_rate_60">60 FPS</string>
+    <string name="settings_frame_rate_120">120 FPS</string>
     <string name="settings_search_engine">Default Search Engine</string>
+    <string name="settings_toolbar_pill_edge">Toolbar pill edge</string>
+    <string name="settings_pill_edge_top">Top edge</string>
+    <string name="settings_pill_edge_bottom">Bottom edge</string>
+    <string name="settings_pill_edge_left">Left edge</string>
+    <string name="settings_pill_edge_right">Right edge</string>
     <string name="settings_homepage">Homepage</string>
     <string name="settings_homepage_hint">https://github.com/kurigohan-kamehameha/magni</string>
     <string name="settings_js">Enable JavaScript</string>
@@ -163,6 +193,7 @@
     <string name="accessibility_zoom_out_button">Decrease page zoom</string>
     <string name="accessibility_zoom_in_button">Increase page zoom</string>
     <string name="accessibility_overview_map">Page overview map showing current position. Drag to navigate, pinch to zoom the map.</string>
+    <string name="accessibility_trackpad">Trackpad surface. Move one finger to place the cursor, tap to click, and use two fingers to scroll or pinch-zoom the page.</string>
     <string name="accessibility_tab_info">Tab status indicator showing current tab number and browsing mode</string>
     <string name="accessibility_progress_bar">Page loading progress</string>
     <string name="accessibility_web_container">Web page content area</string>

@@ -105,6 +105,8 @@ class OverviewMapView @JvmOverloads constructor(
                     if (anchorAfter != null) {
                         overviewCenterXNorm += anchorBefore.x - anchorAfter.x
                         overviewCenterYNorm += anchorBefore.y - anchorAfter.y
+                        overviewCenterXNorm = overviewCenterXNorm.coerceIn(0f, 1f)
+                        overviewCenterYNorm = overviewCenterYNorm.coerceIn(0f, 1f)
                     }
                 }
 
@@ -197,6 +199,9 @@ class OverviewMapView @JvmOverloads constructor(
             width - paddingRight - mapInsetPx,
             height - paddingBottom - mapInsetPx
         )
+        if (drawRect.width() <= 0f || drawRect.height() <= 0f) {
+            return
+        }
 
         if (!overlayMode) {
             canvas.drawRoundRect(drawRect, mapCornerRadiusPx, mapCornerRadiusPx, mapBackgroundPaint)
@@ -543,6 +548,9 @@ class OverviewMapView @JvmOverloads constructor(
     }
     
     override fun performAccessibilityAction(action: Int, arguments: android.os.Bundle?): Boolean {
+        if (!isAttachedToWindow) {
+            return false
+        }
         when (action) {
             AccessibilityNodeInfo.ACTION_SCROLL_FORWARD -> {
                 // Zoom in via accessibility action

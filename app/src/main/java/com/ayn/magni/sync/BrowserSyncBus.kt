@@ -1,7 +1,8 @@
 package com.ayn.magni.sync
 
 import android.graphics.Bitmap
-import java.util.concurrent.atomic.AtomicReference
+import android.os.SystemClock
+import android.view.Display
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
 import kotlin.concurrent.write
@@ -13,24 +14,72 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
+data class ZoomPresence(
+    val isActive: Boolean = false,
+    val displayId: Int? = null,
+    val lastSeenElapsedMs: Long = 0L
+)
+
 /**
  * Thread-safe synchronization bus for browser state.
  * NASA standard: explicit thread-safety and defensive null handling.
  */
 object BrowserSyncBus {
     private val stateFlow = MutableStateFlow(BrowserUiState())
+    private val topDisplayHasMagniFlow = MutableStateFlow(false)
+    private val zoomPresenceFlow = MutableStateFlow(ZoomPresence())
     private val commandsFlow = MutableSharedFlow<BrowserCommand>(
         replay = 0,
-        extraBufferCapacity = 48,
+        extraBufferCapacity = 128,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
+    private val activeDisplayByActivityToken = linkedMapOf<Int, Int>()
+    private val activityPresenceLock = Any()
+    private const val MAX_ACTIVE_ACTIVITY_TOKENS = 64
     
     // NASA standard: use explicit locking for bitmap operations to prevent race conditions
     private val snapshotLock = ReentrantReadWriteLock()
     private var currentSnapshot: Bitmap? = null
 
     val state: StateFlow<BrowserUiState> = stateFlow.asStateFlow()
+    val topDisplayHasMagni: StateFlow<Boolean> = topDisplayHasMagniFlow.asStateFlow()
+    val zoomPresence: StateFlow<ZoomPresence> = zoomPresenceFlow.asStateFlow()
     val commands = commandsFlow.asSharedFlow()
+
+    fun reportActivityDisplayPresence(activityToken: Int, active: Boolean, displayId: Int?) {
+        synchronized(activityPresenceLock) {
+            if (active && displayId != null) {
+                activeDisplayByActivityToken[activityToken] = displayId
+                while (activeDisplayByActivityToken.size > MAX_ACTIVE_ACTIVITY_TOKENS) {
+                    val staleToken = activeDisplayByActivityToken.keys.firstOrNull() ?: break
+                    activeDisplayByActivityToken.remove(staleToken)
+                }
+            } else {
+                activeDisplayByActivityToken.remove(activityToken)
+            }
+            topDisplayHasMagniFlow.value =
+                activeDisplayByActivityToken.values.any { it == Display.DEFAULT_DISPLAY }
+        }
+    }
+
+    fun reportZoomPresence(active: Boolean, displayId: Int?) {
+        val safeDisplayId = if (active) displayId else null
+        val now = SystemClock.elapsedRealtime()
+        zoomPresenceFlow.update { current ->
+            if (!active && !current.isActive && current.displayId == null) {
+                current
+            } else
+            if (current.isActive == active && current.displayId == safeDisplayId) {
+                current.copy(lastSeenElapsedMs = now)
+            } else {
+                ZoomPresence(
+                    isActive = active,
+                    displayId = safeDisplayId,
+                    lastSeenElapsedMs = now
+                )
+            }
+        }
+    }
 
     fun updateViewport(viewport: BrowserViewport) {
         stateFlow.update { current ->
@@ -105,14 +154,16 @@ object BrowserSyncBus {
     }
 
     fun latestSnapshot(): Bitmap? {
-        return snapshotLock.read {
-            val snapshot = currentSnapshot
-            if (snapshot?.isRecycled == true) {
-                null
-            } else {
-                snapshot
+        val snapshot = snapshotLock.read { currentSnapshot }
+        if (snapshot?.isRecycled == true) {
+            snapshotLock.write {
+                if (currentSnapshot?.isRecycled == true) {
+                    currentSnapshot = null
+                }
             }
+            return null
         }
+        return snapshot
     }
 
     fun sendCommand(command: BrowserCommand) {

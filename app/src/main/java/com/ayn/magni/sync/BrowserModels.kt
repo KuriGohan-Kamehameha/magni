@@ -26,6 +26,12 @@ sealed interface BrowserCommand {
     data class ScrollTo(val x: Int, val y: Int) : BrowserCommand
     data class LoadUrl(val rawUrl: String) : BrowserCommand
     data class SetChromeVisible(val visible: Boolean) : BrowserCommand
+    data class SetMousepadMode(val enabled: Boolean) : BrowserCommand
+    data class SetBottomScreenBlackout(val enabled: Boolean) : BrowserCommand
+    data class TrackpadTap(val normalizedX: Float, val normalizedY: Float) : BrowserCommand
+    data class TrackpadLongPress(val normalizedX: Float, val normalizedY: Float) : BrowserCommand
+    data class TrackpadScroll(val deltaX: Float, val deltaY: Float) : BrowserCommand
+    data class TrackpadMove(val normalizedX: Float, val normalizedY: Float) : BrowserCommand
     data object Back : BrowserCommand
     data object Forward : BrowserCommand
     data object Reload : BrowserCommand
