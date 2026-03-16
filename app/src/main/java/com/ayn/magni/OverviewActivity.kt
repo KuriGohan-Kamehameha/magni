@@ -30,12 +30,14 @@ import com.ayn.magni.databinding.ActivityOverviewBinding
 import com.ayn.magni.sync.BrowserCommand
 import com.ayn.magni.sync.BrowserSyncBus
 import com.ayn.magni.sync.BrowserUiState
+import com.ayn.magni.trackpad.TrackpadCommandConnector
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 class OverviewActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityOverviewBinding
+    private var latestBrowserState = BrowserUiState()
     private var zoomLaunchAttempted = false
     private var browserCanGoBack = false
     private var lastScreenSwapAtMs = 0L
@@ -44,6 +46,32 @@ class OverviewActivity : AppCompatActivity() {
     private var lastDisplayAlignmentAtMs = 0L
     private var pendingSwapAnimation: ScreenSwapAnimation? = null
     private var isSwapRetryScheduled = false
+    private var themedShellColor: Int = Color.BLACK
+    private var themedMapBackgroundColor: Int = Color.BLACK
+    private var cachedSnapshotVersion: Long = -1L
+    private var cachedSnapshotBitmap: android.graphics.Bitmap? = null
+    private val trackpadCommandConnector = TrackpadCommandConnector(
+        sendCommand = BrowserSyncBus::sendCommand
+    )
+    private val activityPresenceToken = System.identityHashCode(this)
+    private var topDisplayMissingSinceMs: Long = 0L
+    private var selfContainTransitionStarted = false
+    private val pendingSwapRetryRunnable = Runnable {
+        isSwapRetryScheduled = false
+        if (!isFinishing && !isDestroyed) {
+            swapScreenRoles()
+        }
+    }
+    private val pendingConsumeSwapRunnable = Runnable {
+        if (!isFinishing && !isDestroyed && pendingSwapAnimation != null) {
+            consumePendingSwapRequestOrAlign()
+        }
+    }
+    private val pendingTopDisplayLossRunnable = Runnable {
+        if (!isFinishing && !isDestroyed) {
+            handleTopDisplayPresence(BrowserSyncBus.topDisplayHasMagni.value)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         BrowserSettingsStore.applyTheme(this)
@@ -63,11 +91,24 @@ class OverviewActivity : AppCompatActivity() {
             BrowserSyncBus.sendCommand(BrowserCommand.ScrollTo(x, y))
         }
         binding.overviewMap.onOverviewZoomChanged = { zoom ->
-            updateOverviewZoomText(zoom)
+            if (!isMousepadModeActive()) {
+                updateOverviewZoomText(zoom)
+            }
         }
         binding.overviewResetButton.setOnClickListener {
             binding.overviewMap.resetOverviewZoom()
             updateOverviewZoomText(binding.overviewMap.currentOverviewZoom())
+        }
+        trackpadCommandConnector.attach(binding.trackpadView)
+        binding.oledBlackoutView.onTouchForward = { event ->
+            if (!isBottomScreenBlackoutActive()) {
+                false
+            } else {
+                binding.trackpadView.dispatchTouchEvent(event)
+            }
+        }
+        binding.overviewModeButton.setOnClickListener {
+            toggleMousepadMode()
         }
 
         binding.overviewSettingsButton.setOnClickListener {
@@ -78,17 +119,21 @@ class OverviewActivity : AppCompatActivity() {
                 startActivity(Intent(this, SettingsActivity::class.java))
             }
         }
+        applyBottomInteractionMode()
         applyOverviewTopBarVisibility()
         configureBackHandling()
 
         applyChromeStyle()
         collectCommands()
         collectBrowserState()
+        collectTopDisplayPresence()
     }
 
     override fun onResume() {
         super.onResume()
+        BrowserSyncBus.reportActivityDisplayPresence(activityPresenceToken, true, currentDisplayId())
         configureImmersiveMode()
+        applyBottomInteractionMode()
         applyChromeStyle()
     }
 
@@ -96,12 +141,22 @@ class OverviewActivity : AppCompatActivity() {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
             configureImmersiveMode()
+            BrowserSyncBus.reportActivityDisplayPresence(activityPresenceToken, true, currentDisplayId())
         }
     }
 
     override fun onStart() {
         super.onStart()
+        BrowserSyncBus.reportActivityDisplayPresence(activityPresenceToken, true, currentDisplayId())
         consumePendingSwapRequestOrAlign()
+    }
+
+    override fun onStop() {
+        binding.root.removeCallbacks(pendingSwapRetryRunnable)
+        binding.root.removeCallbacks(pendingConsumeSwapRunnable)
+        binding.root.removeCallbacks(pendingTopDisplayLossRunnable)
+        BrowserSyncBus.reportActivityDisplayPresence(activityPresenceToken, false, null)
+        super.onStop()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -118,6 +173,10 @@ class OverviewActivity : AppCompatActivity() {
             return true
         }
         if (keyCode == KeyEvent.KEYCODE_BUTTON_X) {
+            if (isMousepadModeActive()) {
+                toggleBottomScreenBlackout()
+                return true
+            }
             swapScreenRoles()
             return true
         }
@@ -128,6 +187,9 @@ class OverviewActivity : AppCompatActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 BrowserSyncBus.state.collect { state ->
+                    if (state == latestBrowserState) {
+                        return@collect
+                    }
                     renderState(state)
                 }
             }
@@ -138,18 +200,100 @@ class OverviewActivity : AppCompatActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 BrowserSyncBus.commands.collect { command ->
-                    if (command is BrowserCommand.SetChromeVisible) {
-                        setOverviewTopBarVisible(command.visible)
+                    when (command) {
+                        is BrowserCommand.SetChromeVisible -> {
+                            setOverviewTopBarVisible(command.visible)
+                        }
+
+                        is BrowserCommand.SetBottomScreenBlackout -> {
+                            DisplayRoleStore.setBottomScreenBlackoutEnabled(this@OverviewActivity, command.enabled)
+                            applyBottomBlackoutMode()
+                        }
+
+                        else -> Unit
                     }
                 }
             }
         }
     }
 
+    private fun collectTopDisplayPresence() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                BrowserSyncBus.topDisplayHasMagni.collect { topDisplayHasMagni ->
+                    handleTopDisplayPresence(topDisplayHasMagni)
+                }
+            }
+        }
+    }
+
+    private fun handleTopDisplayPresence(topDisplayHasMagni: Boolean) {
+        if (isFinishing || isDestroyed || selfContainTransitionStarted) {
+            return
+        }
+
+        if (isCurrentScreenOnTop()) {
+            topDisplayMissingSinceMs = 0L
+            binding.root.removeCallbacks(pendingTopDisplayLossRunnable)
+            return
+        }
+
+        if (topDisplayHasMagni || !zoomLaunchAttempted) {
+            topDisplayMissingSinceMs = 0L
+            binding.root.removeCallbacks(pendingTopDisplayLossRunnable)
+            return
+        }
+
+        val now = SystemClock.elapsedRealtime()
+        if (topDisplayMissingSinceMs == 0L) {
+            topDisplayMissingSinceMs = now
+            binding.root.removeCallbacks(pendingTopDisplayLossRunnable)
+            binding.root.postDelayed(pendingTopDisplayLossRunnable, TOP_DISPLAY_LOSS_GRACE_MS)
+            return
+        }
+
+        if (now - topDisplayMissingSinceMs < TOP_DISPLAY_LOSS_GRACE_MS) {
+            val remainingDelayMs = TOP_DISPLAY_LOSS_GRACE_MS - (now - topDisplayMissingSinceMs)
+            binding.root.removeCallbacks(pendingTopDisplayLossRunnable)
+            binding.root.postDelayed(pendingTopDisplayLossRunnable, remainingDelayMs)
+            return
+        }
+
+        binding.root.removeCallbacks(pendingTopDisplayLossRunnable)
+        transitionToSelfContainedBrowser()
+    }
+
+    private fun transitionToSelfContainedBrowser() {
+        if (selfContainTransitionStarted || isFinishing || isDestroyed) {
+            return
+        }
+
+        selfContainTransitionStarted = true
+        topDisplayMissingSinceMs = 0L
+        binding.root.removeCallbacks(pendingTopDisplayLossRunnable)
+        DisplayRoleStore.releaseScreenSwapLock()
+        DisplayRoleStore.setZoomOnTop(this, false)
+        DisplayRoleStore.setMousepadModeEnabled(this, false)
+        DisplayRoleStore.setBottomScreenBlackoutEnabled(this, false)
+        BrowserSyncBus.sendCommand(BrowserCommand.SetMousepadMode(false))
+        BrowserSyncBus.sendCommand(BrowserCommand.SetBottomScreenBlackout(false))
+
+        val launchedStandalone = launchZoomActivity(swapAnimation = null)
+        val toastRes = if (launchedStandalone) {
+            R.string.top_display_detached_self_contained_toast
+        } else {
+            R.string.top_display_detached_exit_toast
+        }
+        Toast.makeText(this, toastRes, Toast.LENGTH_SHORT).show()
+
+        finishAndRemoveTask()
+    }
+
     private fun renderState(state: BrowserUiState) {
         if (isFinishing || isDestroyed) {
             return
         }
+        latestBrowserState = state
         browserCanGoBack = state.canGoBack
         setOverviewTopBarVisible(state.chromeControlsVisible)
         binding.titleText.text = state.title.ifBlank { getString(R.string.browser_title_default) }
@@ -162,12 +306,18 @@ class OverviewActivity : AppCompatActivity() {
         )
 
         binding.overviewMap.renderState(
-            snapshot = BrowserSyncBus.latestSnapshot(),
+            snapshot = resolveSnapshotForState(state),
             snapshotPageWidth = state.snapshotPageWidth,
             snapshotPageHeight = state.snapshotPageHeight,
             viewport = state.viewport
         )
-        updateOverviewZoomText(binding.overviewMap.currentOverviewZoom())
+        binding.trackpadView.renderState(state.viewport)
+        applyBottomBlackoutMode()
+        if (isMousepadModeActive()) {
+            binding.zoomText.text = getString(R.string.trackpad_mode_badge)
+        } else {
+            updateOverviewZoomText(binding.overviewMap.currentOverviewZoom())
+        }
     }
 
     private fun applyChromeStyle() {
@@ -231,6 +381,8 @@ class OverviewActivity : AppCompatActivity() {
         }
 
         binding.root.setBackgroundColor(shellColor)
+        themedShellColor = shellColor
+        themedMapBackgroundColor = mapBackground
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -250,12 +402,29 @@ class OverviewActivity : AppCompatActivity() {
         binding.overviewSettingsButton.setTextColor(accent)
         binding.overviewResetButton.backgroundTintList = ColorStateList.valueOf(mapBackground)
         binding.overviewResetButton.setTextColor(accent)
+        binding.overviewModeButton.backgroundTintList = ColorStateList.valueOf(mapBackground)
+        binding.overviewModeButton.setTextColor(accent)
         binding.overviewMap.applyThemeColors(
             mapBackgroundColor = mapBackground,
             mapGridColor = mapGrid,
             accentColor = accent,
             accentSoftColor = accentSoft
         )
+        binding.trackpadView.applyThemeColors(
+            surfaceColor = mapBackground,
+            gridColor = mapGrid,
+            accentColor = accent,
+            accentSoftColor = accentSoft,
+            textColor = textColor,
+            mutedTextColor = mutedColor
+        )
+        binding.oledBlackoutView.applyThemeColors(
+            accentColor = accent,
+            accentSoftColor = accentSoft
+        )
+        binding.oledBlackoutView.setTargetFrameRate(prefs.frameRateMode.fps)
+        binding.oledBlackoutView.setFeedbackEffect(prefs.bottomScreenFeedbackEffect)
+        applyBottomBlackoutMode()
     }
 
     private fun configureImmersiveMode() {
@@ -310,13 +479,20 @@ class OverviewActivity : AppCompatActivity() {
         if (!request.getBooleanExtra(EXTRA_FORCE_SWAP_HANDOFF, false)) {
             return
         }
+        val swapToken = request.getStringExtra(EXTRA_SWAP_HANDOFF_TOKEN)
+        if (!DisplayRoleStore.consumeSwapHandoffToken(swapToken)) {
+            return
+        }
 
         val zoomOnTop = request.getBooleanExtra(
             EXTRA_TARGET_ZOOM_ON_TOP,
             DisplayRoleStore.isZoomOnTop(this)
         )
         zoomLaunchAttempted = false
-        pendingSwapAnimation = ScreenSwapTransition.forZoomOnTop(zoomOnTop)
+        DisplayRoleStore.setZoomOnTop(this, zoomOnTop)
+        pendingSwapAnimation = ScreenSwapTransition.forCurrentScreenOnTop(
+            isCurrentScreenOnTop = isCurrentScreenOnTop()
+        )
     }
 
     private fun consumePendingSwapRequestOrAlign() {
@@ -332,14 +508,8 @@ class OverviewActivity : AppCompatActivity() {
             return
         }
 
-        binding.root.postDelayed(
-            {
-                if (!isFinishing && !isDestroyed && pendingSwapAnimation != null) {
-                    consumePendingSwapRequestOrAlign()
-                }
-            },
-            PENDING_SWAP_RETRY_DELAY_MS
-        )
+        binding.root.removeCallbacks(pendingConsumeSwapRunnable)
+        binding.root.postDelayed(pendingConsumeSwapRunnable, PENDING_SWAP_RETRY_DELAY_MS)
     }
 
     private fun launchZoomActivity(swapAnimation: ScreenSwapAnimation? = null): Boolean {
@@ -371,6 +541,9 @@ class OverviewActivity : AppCompatActivity() {
                     )
                 }
                 startActivity(intent, options.toBundle())
+                if (swapAnimation != null) {
+                    applySwapAnimationOverride(swapAnimation)
+                }
                 return true
             } catch (_: Exception) {
                 // Fallback below.
@@ -385,6 +558,7 @@ class OverviewActivity : AppCompatActivity() {
             )
             runCatching {
                 startActivity(intent, options.toBundle())
+                applySwapAnimationOverride(swapAnimation)
             }.isSuccess
         } else {
             runCatching {
@@ -440,6 +614,9 @@ class OverviewActivity : AppCompatActivity() {
                         )
                     }
                     startActivity(relaunch, options.toBundle())
+                    if (swapAnimation != null) {
+                        applySwapAnimationOverride(swapAnimation)
+                    }
                     // singleTask moves the existing instance to the target display
                     // via onNewIntent — do NOT finish() or the activity is destroyed.
                 } catch (_: Exception) {
@@ -497,12 +674,73 @@ class OverviewActivity : AppCompatActivity() {
         Toast.makeText(this, toastRes, Toast.LENGTH_SHORT).show()
         zoomLaunchAttempted = false
         val swapStarted = alignDisplaysAndLaunchZoomIfNeeded(
-            ScreenSwapTransition.forZoomOnTop(zoomOnTop)
+            ScreenSwapTransition.forCurrentScreenOnTop(
+                isCurrentScreenOnTop = isCurrentScreenOnTop()
+            )
         )
         if (!swapStarted) {
             DisplayRoleStore.setZoomOnTop(this, previousZoomOnTop)
             DisplayRoleStore.releaseScreenSwapLock()
         }
+    }
+
+    private fun toggleMousepadMode() {
+        val hasSecondaryDisplay = findSecondaryDisplayId(Display.DEFAULT_DISPLAY) != null
+        if (!hasSecondaryDisplay) {
+            Toast.makeText(this, R.string.display_single, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val currentlyEnabled = DisplayRoleStore.isMousepadModeEnabled(this)
+        val targetEnabled = !currentlyEnabled
+        val previousZoomOnTop = DisplayRoleStore.isZoomOnTop(this)
+        DisplayRoleStore.setMousepadModeEnabled(this, targetEnabled)
+        if (!targetEnabled) {
+            DisplayRoleStore.setBottomScreenBlackoutEnabled(this, false)
+            BrowserSyncBus.sendCommand(BrowserCommand.SetBottomScreenBlackout(false))
+        }
+
+        val requiresRoleChange = targetEnabled && !previousZoomOnTop
+        if (requiresRoleChange) {
+            zoomLaunchAttempted = false
+            DisplayRoleStore.setZoomOnTop(this, true)
+            val swapStarted = alignDisplaysAndLaunchZoomIfNeeded(
+                ScreenSwapTransition.forCurrentScreenOnTop(
+                    isCurrentScreenOnTop = isCurrentScreenOnTop()
+                )
+            )
+            if (!swapStarted) {
+                DisplayRoleStore.setZoomOnTop(this, previousZoomOnTop)
+                DisplayRoleStore.setMousepadModeEnabled(this, currentlyEnabled)
+                return
+            }
+        } else {
+            BrowserSyncBus.sendCommand(BrowserCommand.SetMousepadMode(targetEnabled))
+            if (targetEnabled) {
+                binding.trackpadView.resetCursor()
+            }
+            applyBottomInteractionMode()
+            renderState(latestBrowserState)
+        }
+
+        val toastRes = if (targetEnabled) {
+            R.string.mousepad_mode_enabled_toast
+        } else {
+            R.string.mousepad_mode_disabled_toast
+        }
+        Toast.makeText(this, toastRes, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun toggleBottomScreenBlackout() {
+        val enabled = DisplayRoleStore.toggleBottomScreenBlackout(this)
+        BrowserSyncBus.sendCommand(BrowserCommand.SetBottomScreenBlackout(enabled))
+        applyBottomBlackoutMode()
+        val toastRes = if (enabled) {
+            R.string.bottom_screen_off_toast
+        } else {
+            R.string.bottom_screen_on_toast
+        }
+        Toast.makeText(this, toastRes, Toast.LENGTH_SHORT).show()
     }
 
     private fun findSecondaryDisplayId(currentDisplayId: Int): Int? {
@@ -530,15 +768,19 @@ class OverviewActivity : AppCompatActivity() {
             return
         }
         isSwapRetryScheduled = true
-        binding.root.postDelayed(
-            {
-                isSwapRetryScheduled = false
-                if (!isFinishing && !isDestroyed) {
-                    swapScreenRoles()
-                }
-            },
-            SCREEN_SWAP_RETRY_DELAY_MS
-        )
+        binding.root.removeCallbacks(pendingSwapRetryRunnable)
+        binding.root.postDelayed(pendingSwapRetryRunnable, SCREEN_SWAP_RETRY_DELAY_MS)
+    }
+
+    private fun resolveSnapshotForState(state: BrowserUiState): android.graphics.Bitmap? {
+        if (state.snapshotVersion != cachedSnapshotVersion) {
+            cachedSnapshotVersion = state.snapshotVersion
+            cachedSnapshotBitmap = BrowserSyncBus.latestSnapshot()
+        }
+        if (cachedSnapshotBitmap?.isRecycled == true) {
+            cachedSnapshotBitmap = null
+        }
+        return cachedSnapshotBitmap
     }
 
     private fun areaOf(display: Display): Long {
@@ -555,17 +797,76 @@ class OverviewActivity : AppCompatActivity() {
         }
     }
 
+    private fun isCurrentScreenOnTop(): Boolean {
+        return currentDisplayId() == Display.DEFAULT_DISPLAY
+    }
+
+    @Suppress("DEPRECATION")
+    private fun applySwapAnimationOverride(animation: ScreenSwapAnimation) {
+        runCatching {
+            overridePendingTransition(animation.enterAnimRes, animation.exitAnimRes)
+        }
+    }
+
     private fun updateOverviewZoomText(zoom: Float) {
         val percent = (zoom * 100f).roundToInt().coerceAtLeast(100)
         binding.zoomText.text = getString(R.string.overview_zoom_template, percent)
     }
 
-    private fun applyOverviewTopBarVisibility() {
-        binding.overviewTopBar.visibility = if (isOverviewTopBarVisible) {
+    private fun applyBottomInteractionMode() {
+        val mousepadModeActive = isMousepadModeActive()
+        binding.overviewMap.visibility = if (mousepadModeActive) {
+            View.GONE
+        } else {
+            View.VISIBLE
+        }
+        binding.trackpadView.visibility = if (mousepadModeActive) {
             View.VISIBLE
         } else {
             View.GONE
         }
+        binding.overviewResetButton.visibility = if (mousepadModeActive) {
+            View.GONE
+        } else {
+            View.VISIBLE
+        }
+        binding.overviewModeButton.text = getString(
+            if (mousepadModeActive) {
+                R.string.button_trackpad_on
+            } else {
+                R.string.button_trackpad
+            }
+        )
+        applyBottomBlackoutMode()
+    }
+
+    private fun applyOverviewTopBarVisibility() {
+        val shouldShowTopBar =
+            !isBottomScreenBlackoutActive() &&
+                (isOverviewTopBarVisible || isCurrentScreenOnTop() || isMousepadModeActive())
+        binding.overviewTopBar.visibility = if (shouldShowTopBar) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
+    }
+
+    private fun applyBottomBlackoutMode() {
+        val showBlackout = isBottomScreenBlackoutActive()
+        binding.root.setBackgroundColor(if (showBlackout) Color.BLACK else themedShellColor)
+        binding.overviewMapContainer.backgroundTintList = ColorStateList.valueOf(
+            if (showBlackout) Color.BLACK else themedMapBackgroundColor
+        )
+        binding.oledBlackoutView.visibility = if (showBlackout) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
+        applyOverviewTopBarVisibility()
+    }
+
+    private fun isBottomScreenBlackoutActive(): Boolean {
+        return isMousepadModeActive() && DisplayRoleStore.isBottomScreenBlackoutEnabled(this)
     }
 
     private fun setOverviewTopBarVisible(visible: Boolean) {
@@ -588,16 +889,31 @@ class OverviewActivity : AppCompatActivity() {
         }
     }
 
+    private fun isMousepadModeActive(): Boolean {
+        return DisplayRoleStore.isMousepadModeEnabled(this) &&
+            DisplayRoleStore.isZoomOnTop(this) &&
+            findSecondaryDisplayId(Display.DEFAULT_DISPLAY) != null
+    }
+
     override fun onDestroy() {
         // Cleanup listeners to prevent memory leaks
+        binding.root.removeCallbacks(pendingSwapRetryRunnable)
+        binding.root.removeCallbacks(pendingConsumeSwapRunnable)
+        binding.root.removeCallbacks(pendingTopDisplayLossRunnable)
+        BrowserSyncBus.reportActivityDisplayPresence(activityPresenceToken, false, null)
         binding.overviewMap.onPositionRequested = null
         binding.overviewMap.onOverviewZoomChanged = null
+        cachedSnapshotBitmap = null
+        trackpadCommandConnector.detach(binding.trackpadView)
+        binding.oledBlackoutView.onTouchForward = null
         super.onDestroy()
     }
 
     companion object {
         const val EXTRA_FORCE_SWAP_HANDOFF = "com.ayn.magni.extra.FORCE_SWAP_HANDOFF"
         const val EXTRA_TARGET_ZOOM_ON_TOP = "com.ayn.magni.extra.TARGET_ZOOM_ON_TOP"
+        const val EXTRA_SWAP_HANDOFF_TOKEN = "com.ayn.magni.extra.SWAP_HANDOFF_TOKEN"
+        private const val TOP_DISPLAY_LOSS_GRACE_MS = 1500L
         private const val SCREEN_SWAP_DEBOUNCE_MS = 320L
         private const val SCREEN_SWAP_GLOBAL_LOCK_MS = 650L
         private const val SCREEN_SWAP_RETRY_DELAY_MS = 180L

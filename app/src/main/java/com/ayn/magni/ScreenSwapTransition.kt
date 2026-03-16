@@ -6,16 +6,18 @@ internal data class ScreenSwapAnimation(
 )
 
 internal object ScreenSwapTransition {
-    fun forZoomOnTop(zoomOnTop: Boolean): ScreenSwapAnimation {
-        return if (zoomOnTop) {
+    fun forCurrentScreenOnTop(isCurrentScreenOnTop: Boolean): ScreenSwapAnimation {
+        return if (isCurrentScreenOnTop) {
+            // Top screen exits downward while bottom screen enters upward.
             ScreenSwapAnimation(
                 enterAnimRes = R.anim.screen_swap_in_from_bottom,
-                exitAnimRes = R.anim.screen_swap_out_to_top
+                exitAnimRes = R.anim.screen_swap_out_to_bottom
             )
         } else {
+            // Bottom screen exits upward while top screen enters downward.
             ScreenSwapAnimation(
                 enterAnimRes = R.anim.screen_swap_in_from_top,
-                exitAnimRes = R.anim.screen_swap_out_to_bottom
+                exitAnimRes = R.anim.screen_swap_out_to_top
             )
         }
     }

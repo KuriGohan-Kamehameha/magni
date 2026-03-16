@@ -67,12 +67,64 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
+                android:text="@string/settings_cursor_shape"
+                android:textColor="@color/retro_muted"
+                android:textSize="11sp" />
+
+            <Spinner
+                android:id="@+id/cursorShapeSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="40dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/settings_bottom_feedback_effect"
+                android:textColor="@color/retro_muted"
+                android:textSize="11sp" />
+
+            <Spinner
+                android:id="@+id/bottomFeedbackEffectSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="40dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/settings_frame_rate"
+                android:textColor="@color/retro_muted"
+                android:textSize="11sp" />
+
+            <Spinner
+                android:id="@+id/frameRateSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="40dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
                 android:text="@string/settings_search_engine"
                 android:textColor="@color/retro_muted"
                 android:textSize="11sp" />
 
             <Spinner
                 android:id="@+id/searchEngineSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="40dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/settings_toolbar_pill_edge"
+                android:textColor="@color/retro_muted"
+                android:textSize="11sp" />
+
+            <Spinner
+                android:id="@+id/toolbarPillEdgeSpinner"
                 android:layout_width="match_parent"
                 android:layout_height="40dp" />
 

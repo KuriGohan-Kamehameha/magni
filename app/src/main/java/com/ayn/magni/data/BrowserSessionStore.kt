@@ -16,7 +16,6 @@ data class BrowserSession(
 )
 
 object BrowserSessionStore {
-    private const val PREFS_NAME = "browser_prefs"
     private const val KEY_SESSION = "tab_session"
     private const val MAX_SESSION_TABS = 10
     private const val MAX_TITLE_LENGTH = 140
@@ -25,8 +24,7 @@ object BrowserSessionStore {
     private const val MAX_JSON_LENGTH = 100_000
 
     fun load(context: Context): BrowserSession? {
-        val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_SESSION, null)
+        val raw = safeGetString(context, KEY_SESSION)
             ?: return null
 
         // NASA standard: validate input length before parsing
@@ -103,8 +101,39 @@ object BrowserSessionStore {
             return
         }
 
+        var candidateTabs = sanitizedTabs
+        var outputJson = encodeSessionJson(candidateTabs, currentIndex)
+        while (outputJson.length > MAX_JSON_LENGTH && candidateTabs.size > 1) {
+            candidateTabs = candidateTabs.dropLast(1)
+            outputJson = encodeSessionJson(candidateTabs, currentIndex)
+        }
+        if (outputJson.length > MAX_JSON_LENGTH) {
+            clear(context)
+            return
+        }
+
+        // NASA standard: use commit() for atomic writes to ensure data integrity
+        SecureBrowserPrefs.get(context)
+            .edit()
+            .putString(KEY_SESSION, outputJson)
+            .commit()
+    }
+
+    fun clear(context: Context) {
+        SecureBrowserPrefs.get(context)
+            .edit()
+            .remove(KEY_SESSION)
+            .commit()
+    }
+
+    private fun safeGetString(context: Context, key: String): String? {
+        val prefs = SecureBrowserPrefs.get(context)
+        return runCatching { prefs.getString(key, null) }.getOrNull()
+    }
+
+    private fun encodeSessionJson(tabs: List<SessionTab>, currentIndex: Int): String {
         val outputTabs = JSONArray()
-        sanitizedTabs.forEach { tab ->
+        tabs.forEach { tab ->
             outputTabs.put(
                 JSONObject()
                     .put("url", tab.url.take(MAX_URL_LENGTH))
@@ -113,21 +142,9 @@ object BrowserSessionStore {
             )
         }
 
-        val output = JSONObject()
+        return JSONObject()
             .put("tabs", outputTabs)
-            .put("currentIndex", currentIndex.coerceIn(0, sanitizedTabs.lastIndex))
-
-        // NASA standard: use commit() for atomic writes to ensure data integrity
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_SESSION, output.toString())
-            .commit()
-    }
-
-    fun clear(context: Context) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .remove(KEY_SESSION)
-            .apply()
+            .put("currentIndex", currentIndex.coerceIn(0, tabs.lastIndex))
+            .toString()
     }
 }

@@ -99,11 +99,17 @@ object TrackerBlocker {
         }
 
         val resourceHost = resourceUrl.host?.lowercase()?.trim('.') ?: return false
+        val topLevelHost = parseHost(topLevelUrl)
+        if (topLevelHost != null && isSameSite(resourceHost, topLevelHost)) {
+            return false
+        }
         if (!isKnownTracker(resourceHost)) {
             return false
         }
 
-        val topLevelHost = parseHost(topLevelUrl) ?: return true
+        if (topLevelHost == null) {
+            return true
+        }
         return !isSameSite(resourceHost, topLevelHost)
     }
 
@@ -138,7 +144,7 @@ object TrackerBlocker {
         }
         return try {
             Uri.parse(url).host?.lowercase()?.trim('.')
-        } catch (_: Throwable) {
+        } catch (_: Exception) {
             null
         }
     }

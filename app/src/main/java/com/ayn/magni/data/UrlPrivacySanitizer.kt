@@ -3,6 +3,10 @@ package com.ayn.magni.data
 import androidx.core.net.toUri
 
 object UrlPrivacySanitizer {
+    private const val MAX_URL_LENGTH = 8192
+    private const val MAX_QUERY_PARAMS = 128
+    private const val MAX_PARAM_NAME_LENGTH = 128
+
     private val exactTrackingKeys = setOf(
         "fbclid",
         "gclid",
@@ -47,7 +51,7 @@ object UrlPrivacySanitizer {
         "source_caller"
     )
 
-    private val keyPrefixes = listOf(
+    private val keyPrefixes = arrayOf(
         "utm_",
         "pk_",
         "ga_",
@@ -69,6 +73,9 @@ object UrlPrivacySanitizer {
         if (!enabled) {
             return url
         }
+        if (url.length > MAX_URL_LENGTH) {
+            return url
+        }
 
         val parsed = runCatching { url.toUri() }.getOrNull() ?: return url
         val names = runCatching { parsed.queryParameterNames }.getOrNull() ?: return url
@@ -76,8 +83,13 @@ object UrlPrivacySanitizer {
             return url
         }
 
-        val keepNames = names.filterNot(::isTrackingParam)
-        if (keepNames.size == names.size) {
+        val boundedNames = names.take(MAX_QUERY_PARAMS)
+        if (boundedNames.isEmpty()) {
+            return url
+        }
+
+        val keepNames = boundedNames.filterNot(::isTrackingParam)
+        if (keepNames.size == boundedNames.size && names.size <= MAX_QUERY_PARAMS) {
             return url
         }
 
@@ -88,12 +100,12 @@ object UrlPrivacySanitizer {
                 builder.appendQueryParameter(key, value)
             }
         }
-        return builder.build().toString()
+        return runCatching { builder.build().toString() }.getOrDefault(url)
     }
 
     private fun isTrackingParam(name: String): Boolean {
         val normalized = name.trim().lowercase()
-        if (normalized.isEmpty()) {
+        if (normalized.isEmpty() || normalized.length > MAX_PARAM_NAME_LENGTH) {
             return false
         }
         if (normalized in exactTrackingKeys) {

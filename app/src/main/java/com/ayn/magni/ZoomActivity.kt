@@ -25,6 +25,7 @@ import android.text.TextUtils
 import android.text.format.Formatter
 import android.view.KeyEvent
 import android.view.Display
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.WindowManager
 import android.view.View
@@ -53,11 +54,13 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -71,6 +74,7 @@ import com.ayn.magni.data.SecureBrowserPrefs
 import com.ayn.magni.data.SessionTab
 import com.ayn.magni.data.ThemeMode
 import com.ayn.magni.data.TrackerBlocker
+import com.ayn.magni.data.ToolbarPillEdge
 import com.ayn.magni.data.UrlPrivacySanitizer
 import com.ayn.magni.databinding.ActivityZoomBinding
 import com.ayn.magni.sync.BrowserCommand
@@ -82,6 +86,7 @@ import java.io.ByteArrayInputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -156,12 +161,18 @@ class ZoomActivity : AppCompatActivity() {
     private var progress: Int = 0
     private var defaultMobileUserAgent: String = ""
     private var reusableSnapshotBitmap: Bitmap? = null
+    private val snapshotBitmapLock = Any()
     private var lastSnapshotCaptureAtMs: Long = 0L
+    private var snapshotMinCaptureIntervalMs: Long = DEFAULT_SNAPSHOT_MIN_CAPTURE_INTERVAL_MS
     private var lastValidViewport: BrowserViewport? = null
     private var pendingSessionSnapshot: List<SessionTab>? = null
     private var pendingSessionIndex: Int = 0
+    private var activeDialog: AlertDialog? = null
+    private var pullToRefreshInFlight: Boolean = false
     private var isUrlBarVisible: Boolean = false
+    private var toolbarHandleTouchStartX: Float = 0f
     private var toolbarHandleTouchStartY: Float = 0f
+    private var toolbarTouchStartX: Float = 0f
     private var toolbarTouchStartY: Float = 0f
     private var readerActiveButtonTextColor: Int = Color.parseColor("#EF8B2F")
     private var readerInactiveButtonTextColor: Int = Color.WHITE
@@ -183,6 +194,7 @@ class ZoomActivity : AppCompatActivity() {
     private val downloadNoticeAtMs = AtomicLong(0L)
     private val downloadWindowStartAtMs = AtomicLong(0L)
     private val downloadAttemptsInWindow = AtomicInteger(0)
+    private val trackpadGestureSequence = AtomicLong(0L)
 
     private val settingsLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -224,15 +236,18 @@ class ZoomActivity : AppCompatActivity() {
 
         defaultMobileUserAgent = WebSettings.getDefaultUserAgent(this)
         currentPreferences = BrowserSettingsStore.load(this)
+        applyFrameRateMode()
         if (currentPreferences.privateBrowsingEnabled) {
             clearAllWebData()
         }
 
+        configurePullToRefresh()
         configureToolbar()
         configureBackHandling()
         collectCommands()
         applyScreenRoleLayout()
         applyChromeStyle()
+        applyMousepadModeToChrome(DisplayRoleStore.isMousepadModeEnabled(this))
         BrowserSyncBus.updateChromeVisibility(isUrlBarVisible)
 
         restoreTabsOrCreateDefault()
@@ -243,16 +258,23 @@ class ZoomActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        BrowserSyncBus.reportZoomPresence(active = true, displayId = currentDisplayId())
         exitDataWipeCompleted = false
         configureImmersiveMode()
         val web = currentWebView()
         web?.onResume()
         progress = web?.progress ?: 0
         applyScreenRoleLayout()
+        applyMousepadModeToChrome(DisplayRoleStore.isMousepadModeEnabled(this))
         refreshPreferences(reloadCurrent = false)
         publishBrowserState()
         updateTabIndicator()
         scheduleCapture(120L)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        BrowserSyncBus.reportZoomPresence(active = true, displayId = currentDisplayId())
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -269,6 +291,7 @@ class ZoomActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        trackpadGestureSequence.incrementAndGet()
         captureHandler.removeCallbacks(captureRunnable)
         uiHandler.removeCallbacks(autoHideChromeRunnable)
         tabs.forEach { it.webView.onPause() }
@@ -277,6 +300,7 @@ class ZoomActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        BrowserSyncBus.reportZoomPresence(active = false, displayId = null)
         if (::currentPreferences.isInitialized) {
             clearDataOnExitIfNeeded()
         }
@@ -284,6 +308,7 @@ class ZoomActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        BrowserSyncBus.reportZoomPresence(active = false, displayId = null)
         captureHandler.removeCallbacksAndMessages(null)
         if (::currentPreferences.isInitialized) {
             persistTabSession(flush = true)
@@ -299,9 +324,12 @@ class ZoomActivity : AppCompatActivity() {
         tabs.clear()
         tabsByWebView.clear()
         tabsCopy.forEach { tab ->
+            tab.webView.animate().cancel()
             safelyDestroyWebView(tab.webView)
         }
-        persistenceExecutor.shutdown()
+        runCatching { activeDialog?.dismiss() }
+        activeDialog = null
+        awaitPersistenceDrain()
         super.onDestroy()
     }
 
@@ -328,6 +356,10 @@ class ZoomActivity : AppCompatActivity() {
 
         when (keyCode) {
             KeyEvent.KEYCODE_BUTTON_X -> {
+                if (isTrackpadBottomScreenModeActive()) {
+                    toggleBottomScreenBlackoutFromTopScreen()
+                    return true
+                }
                 swapScreenRoles()
                 return true
             }
@@ -501,14 +533,21 @@ class ZoomActivity : AppCompatActivity() {
         binding.toolbarHandle.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    toolbarHandleTouchStartX = event.rawX
                     toolbarHandleTouchStartY = event.rawY
                     true
                 }
 
                 MotionEvent.ACTION_UP -> {
                     val pullThresholdPx = TOOLBAR_PULL_THRESHOLD_DP * resources.displayMetrics.density
-                    val draggedUpEnough = toolbarHandleTouchStartY - event.rawY >= pullThresholdPx
-                    if (draggedUpEnough) {
+                    val draggedTowardCenterEnough = isHandleSwipeTowardCenter(
+                        startX = toolbarHandleTouchStartX,
+                        startY = toolbarHandleTouchStartY,
+                        endX = event.rawX,
+                        endY = event.rawY,
+                        thresholdPx = pullThresholdPx
+                    )
+                    if (draggedTowardCenterEnough) {
                         showUrlBarIfHidden()
                     } else {
                         binding.toolbarHandle.performClick()
@@ -523,6 +562,7 @@ class ZoomActivity : AppCompatActivity() {
         binding.toolbar.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    toolbarTouchStartX = event.rawX
                     toolbarTouchStartY = event.rawY
                     refreshChromeAutoHideTimer()
                     false
@@ -531,8 +571,14 @@ class ZoomActivity : AppCompatActivity() {
                 MotionEvent.ACTION_UP -> {
                     val dismissThresholdPx =
                         TOOLBAR_DISMISS_PULL_THRESHOLD_DP * resources.displayMetrics.density
-                    val draggedDownEnough = event.rawY - toolbarTouchStartY >= dismissThresholdPx
-                    if (draggedDownEnough) {
+                    val draggedAwayFromCenterEnough = isToolbarDismissSwipeAwayFromCenter(
+                        startX = toolbarTouchStartX,
+                        startY = toolbarTouchStartY,
+                        endX = event.rawX,
+                        endY = event.rawY,
+                        thresholdPx = dismissThresholdPx
+                    )
+                    if (draggedAwayFromCenterEnough) {
                         setUrlBarVisibility(visible = false, announce = true)
                         true
                     } else {
@@ -579,6 +625,7 @@ class ZoomActivity : AppCompatActivity() {
                     progress = 100
                     binding.loadProgress.progress = 100
                     binding.loadProgress.isVisible = false
+                    stopPullToRefreshIndicator()
                 } else {
                     web.reload()
                 }
@@ -657,6 +704,50 @@ class ZoomActivity : AppCompatActivity() {
 
         binding.zoomInButton.setOnClickListener {
             applyZoomStep(delta = 1, captureDelayMs = 100L)
+        }
+    }
+
+    private fun configurePullToRefresh() {
+        binding.swipeRefresh.setOnChildScrollUpCallback(
+            SwipeRefreshLayout.OnChildScrollUpCallback { _, _ ->
+                val web = currentWebView()
+                if (web == null) {
+                    true
+                } else {
+                    web.canScrollVertically(-1)
+                }
+            }
+        )
+
+        binding.swipeRefresh.setOnRefreshListener {
+            val web = currentWebView()
+            if (web == null || progress in 1..99) {
+                stopPullToRefreshIndicator()
+                return@setOnRefreshListener
+            }
+
+            pullToRefreshInFlight = true
+            web.reload()
+            updateReloadButtonState()
+            publishBrowserState()
+            scheduleCapture(100L)
+        }
+
+        updatePullToRefreshAvailability()
+    }
+
+    private fun stopPullToRefreshIndicator() {
+        pullToRefreshInFlight = false
+        if (binding.swipeRefresh.isRefreshing) {
+            binding.swipeRefresh.isRefreshing = false
+        }
+    }
+
+    private fun updatePullToRefreshAvailability() {
+        val enabled = currentWebView() != null && !isTrackpadBottomScreenModeActive()
+        binding.swipeRefresh.isEnabled = enabled
+        if (!enabled) {
+            stopPullToRefreshIndicator()
         }
     }
 
@@ -772,24 +863,109 @@ class ZoomActivity : AppCompatActivity() {
     }
 
     private fun applyScreenRoleLayout() {
-        val shouldUseTopZoomLayout = DisplayRoleStore.isZoomOnTop(this) && hasSecondaryDisplay()
         binding.root.setPadding(0, 0, 0, 0)
+        applyToolbarHandlePlacement()
 
         val containerParams = binding.webContainer.layoutParams
         if (containerParams is ViewGroup.MarginLayoutParams && containerParams.bottomMargin != 0) {
             containerParams.bottomMargin = 0
             binding.webContainer.layoutParams = containerParams
         }
-        val shouldShowControls = !shouldUseTopZoomLayout
-        binding.toolbar.visibility = if (shouldShowControls && isUrlBarVisible) {
+        binding.toolbar.visibility = if (isUrlBarVisible) {
             View.VISIBLE
         } else {
             View.GONE
         }
-        binding.toolbarHandle.visibility = if (shouldShowControls && !isUrlBarVisible) {
+        binding.toolbarHandle.visibility = if (!isUrlBarVisible) {
             View.VISIBLE
         } else {
             View.GONE
+        }
+    }
+
+    private fun applyToolbarHandlePlacement() {
+        val edge = currentPreferences.toolbarPillEdge
+        val density = resources.displayMetrics.density
+        val shortSidePx = (TOOLBAR_HANDLE_SHORT_SIDE_DP * density).roundToInt()
+        val longSidePx = (TOOLBAR_HANDLE_LONG_SIDE_DP * density).roundToInt()
+        val marginPx = (TOOLBAR_HANDLE_MARGIN_DP * density).roundToInt()
+
+        (binding.toolbarHandle.layoutParams as? FrameLayout.LayoutParams)?.let { params ->
+            params.topMargin = 0
+            params.bottomMargin = 0
+            params.marginStart = 0
+            params.marginEnd = 0
+
+            when (edge) {
+                ToolbarPillEdge.TOP -> {
+                    params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                    params.width = longSidePx
+                    params.height = shortSidePx
+                    params.topMargin = marginPx
+                }
+
+                ToolbarPillEdge.BOTTOM -> {
+                    params.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                    params.width = longSidePx
+                    params.height = shortSidePx
+                    params.bottomMargin = marginPx
+                }
+
+                ToolbarPillEdge.LEFT -> {
+                    params.gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                    params.width = shortSidePx
+                    params.height = longSidePx
+                    params.marginStart = marginPx
+                }
+
+                ToolbarPillEdge.RIGHT -> {
+                    params.gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                    params.width = shortSidePx
+                    params.height = longSidePx
+                    params.marginEnd = marginPx
+                }
+            }
+
+            binding.toolbarHandle.layoutParams = params
+        }
+
+        (binding.toolbar.layoutParams as? FrameLayout.LayoutParams)?.let { toolbarParams ->
+            toolbarParams.gravity = if (edge == ToolbarPillEdge.TOP) {
+                Gravity.TOP
+            } else {
+                Gravity.BOTTOM
+            }
+            binding.toolbar.layoutParams = toolbarParams
+        }
+    }
+
+    private fun isHandleSwipeTowardCenter(
+        startX: Float,
+        startY: Float,
+        endX: Float,
+        endY: Float,
+        thresholdPx: Float
+    ): Boolean {
+        return when (currentPreferences.toolbarPillEdge) {
+            ToolbarPillEdge.TOP -> (endY - startY) >= thresholdPx
+            ToolbarPillEdge.BOTTOM -> (startY - endY) >= thresholdPx
+            ToolbarPillEdge.LEFT -> (endX - startX) >= thresholdPx
+            ToolbarPillEdge.RIGHT -> (startX - endX) >= thresholdPx
+        }
+    }
+
+    private fun isToolbarDismissSwipeAwayFromCenter(
+        startX: Float,
+        startY: Float,
+        endX: Float,
+        endY: Float,
+        thresholdPx: Float
+    ): Boolean {
+        return when (currentPreferences.toolbarPillEdge) {
+            ToolbarPillEdge.TOP -> (startY - endY) >= thresholdPx
+            ToolbarPillEdge.BOTTOM -> (endY - startY) >= thresholdPx
+            ToolbarPillEdge.LEFT -> (startX - endX) >= thresholdPx
+            ToolbarPillEdge.RIGHT -> (endX - startX) >= thresholdPx
         }
     }
 
@@ -867,12 +1043,7 @@ class ZoomActivity : AppCompatActivity() {
         setUrlBarVisibility(visible = !isUrlBarVisible, announce = true)
     }
 
-    private fun setUrlBarVisibility(visible: Boolean, announce: Boolean) {
-        val zoomIsOnTopScreen = DisplayRoleStore.isZoomOnTop(this) && hasSecondaryDisplay()
-        if (zoomIsOnTopScreen) {
-            return
-        }
-
+    private fun setUrlBarVisibility(visible: Boolean, announce: Boolean, syncPeers: Boolean = true) {
         if (isUrlBarVisible == visible) {
             return
         }
@@ -880,7 +1051,9 @@ class ZoomActivity : AppCompatActivity() {
         isUrlBarVisible = visible
         applyScreenRoleLayout()
         BrowserSyncBus.updateChromeVisibility(isUrlBarVisible)
-        BrowserSyncBus.sendCommand(BrowserCommand.SetChromeVisible(isUrlBarVisible))
+        if (syncPeers) {
+            BrowserSyncBus.sendCommand(BrowserCommand.SetChromeVisible(isUrlBarVisible))
+        }
         refreshChromeAutoHideTimer()
         if (announce) {
             val messageRes = if (isUrlBarVisible) {
@@ -953,6 +1126,9 @@ class ZoomActivity : AppCompatActivity() {
         val requestedTabId = tab.id
         web.evaluateJavascript(READER_EXTRACTION_SCRIPT) { rawResult ->
             if (isFinishing || isDestroyed) {
+                return@evaluateJavascript
+            }
+            if (!web.isAttachedToWindow) {
                 return@evaluateJavascript
             }
             val currentTab = tabs.getOrNull(currentTabIndex)
@@ -1156,6 +1332,9 @@ class ZoomActivity : AppCompatActivity() {
 
     private fun persistSessionAsync(snapshot: List<SessionTab>, currentIndex: Int) {
         runCatching {
+            if (persistenceExecutor.isShutdown) {
+                return
+            }
             persistenceExecutor.execute {
                 BrowserSessionStore.save(
                     context = applicationContext,
@@ -1163,14 +1342,36 @@ class ZoomActivity : AppCompatActivity() {
                     currentIndex = currentIndex
                 )
             }
+        }.recoverCatching {
+            if (it !is RejectedExecutionException) {
+                throw it
+            }
         }
     }
 
     private fun clearSessionAsync() {
         runCatching {
+            if (persistenceExecutor.isShutdown) {
+                return
+            }
             persistenceExecutor.execute {
                 BrowserSessionStore.clear(applicationContext)
             }
+        }.recoverCatching {
+            if (it !is RejectedExecutionException) {
+                throw it
+            }
+        }
+    }
+
+    private fun awaitPersistenceDrain() {
+        persistenceExecutor.shutdown()
+        runCatching {
+            if (!persistenceExecutor.awaitTermination(PERSISTENCE_SHUTDOWN_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                persistenceExecutor.shutdownNow()
+            }
+        }.onFailure {
+            persistenceExecutor.shutdownNow()
         }
     }
 
@@ -1230,6 +1431,7 @@ class ZoomActivity : AppCompatActivity() {
         }
 
         currentTabIndex = index
+        updatePullToRefreshAvailability()
         progress = currentWebView()?.progress ?: 0
 
         binding.loadProgress.progress = progress
@@ -1264,7 +1466,7 @@ class ZoomActivity : AppCompatActivity() {
         tabsByWebView.remove(tab.webView)
         safelyDestroyWebView(tab.webView)
 
-        val fallbackIndex = (closingIndex - 1).coerceAtLeast(0)
+        val fallbackIndex = min(closingIndex, tabs.lastIndex).coerceAtLeast(0)
         switchToTab(index = fallbackIndex, transitionStyle = TabTransitionStyle.NONE)
     }
 
@@ -1509,6 +1711,9 @@ class ZoomActivity : AppCompatActivity() {
                     progress = newProgress.coerceIn(0, 100)
                     binding.loadProgress.progress = progress
                     binding.loadProgress.isVisible = progress in 1..99
+                    if (progress >= 100) {
+                        stopPullToRefreshIndicator()
+                    }
                     updateReloadButtonState()
                     publishBrowserState()
                 }
@@ -1599,6 +1804,7 @@ class ZoomActivity : AppCompatActivity() {
                         progress = 100
                         binding.loadProgress.progress = 100
                         binding.loadProgress.isVisible = false
+                        stopPullToRefreshIndicator()
                         updateReloadButtonState()
                     }
                     showThrottledToast(R.string.blocked_insecure_http_toast, TOAST_COOLDOWN_MS)
@@ -1622,6 +1828,9 @@ class ZoomActivity : AppCompatActivity() {
                     progress = 0
                     binding.loadProgress.progress = 0
                     binding.loadProgress.isVisible = true
+                    if (pullToRefreshInFlight) {
+                        binding.swipeRefresh.isRefreshing = true
+                    }
                     updateReloadButtonState()
                     // Reset viewport cache when page starts loading
                     lastValidViewport = null
@@ -1657,6 +1866,7 @@ class ZoomActivity : AppCompatActivity() {
                 persistTabSession()
 
                 if (view === currentWebView()) {
+                    stopPullToRefreshIndicator()
                     publishBrowserState()
                     scheduleCapture(120)
                     updateTabIndicator()
@@ -1715,7 +1925,49 @@ class ZoomActivity : AppCompatActivity() {
             }
 
             is BrowserCommand.SetChromeVisible -> {
-                setUrlBarVisibility(visible = command.visible, announce = false)
+                setUrlBarVisibility(
+                    visible = command.visible,
+                    announce = false,
+                    syncPeers = false
+                )
+                return
+            }
+
+            is BrowserCommand.SetMousepadMode -> {
+                applyMousepadModeToChrome(command.enabled)
+                return
+            }
+
+            is BrowserCommand.SetBottomScreenBlackout -> {
+                // Handled by OverviewActivity on the bottom display.
+                return
+            }
+
+            is BrowserCommand.TrackpadTap -> {
+                dispatchTrackpadTap(
+                    normalizedX = command.normalizedX,
+                    normalizedY = command.normalizedY,
+                    longPress = false
+                )
+                return
+            }
+
+            is BrowserCommand.TrackpadLongPress -> {
+                dispatchTrackpadTap(
+                    normalizedX = command.normalizedX,
+                    normalizedY = command.normalizedY,
+                    longPress = true
+                )
+                return
+            }
+
+            is BrowserCommand.TrackpadScroll -> {
+                applyTrackpadScroll(command.deltaX, command.deltaY)
+                return
+            }
+
+            is BrowserCommand.TrackpadMove -> {
+                updateCursorOverlay(command.normalizedX, command.normalizedY)
                 return
             }
 
@@ -1746,6 +1998,150 @@ class ZoomActivity : AppCompatActivity() {
         scheduleCapture(150)
     }
 
+    private fun applyMousepadModeToChrome(enabled: Boolean) {
+        val browserOnTop = DisplayRoleStore.isZoomOnTop(this) && hasSecondaryDisplay()
+        val overlay = binding.cursorOverlay
+        if (browserOnTop) {
+            isUrlBarVisible = enabled
+            applyScreenRoleLayout()
+            BrowserSyncBus.updateChromeVisibility(isUrlBarVisible)
+            refreshChromeAutoHideTimer()
+            if (enabled) {
+                overlay.visibility = View.VISIBLE
+                overlay.setCursorPosition(0.5f, 0.5f)
+            } else {
+                overlay.hideCursor()
+                overlay.visibility = View.GONE
+            }
+        } else {
+            applyScreenRoleLayout()
+            overlay.hideCursor()
+            overlay.visibility = View.GONE
+        }
+        updatePullToRefreshAvailability()
+        publishBrowserState()
+    }
+
+    private fun isTrackpadBottomScreenModeActive(): Boolean {
+        return DisplayRoleStore.isMousepadModeEnabled(this) &&
+            DisplayRoleStore.isZoomOnTop(this) &&
+            hasSecondaryDisplay()
+    }
+
+    private fun toggleBottomScreenBlackoutFromTopScreen() {
+        val enabled = DisplayRoleStore.toggleBottomScreenBlackout(this)
+        BrowserSyncBus.sendCommand(BrowserCommand.SetBottomScreenBlackout(enabled))
+        val toastRes = if (enabled) {
+            R.string.bottom_screen_off_toast
+        } else {
+            R.string.bottom_screen_on_toast
+        }
+        showThrottledToast(toastRes, TOAST_COOLDOWN_MS)
+    }
+
+    private fun updateCursorOverlay(normalizedX: Float, normalizedY: Float) {
+        val overlay = binding.cursorOverlay
+        if (overlay.visibility != View.VISIBLE) {
+            return
+        }
+        val safeX = normalizedX.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: return
+        val safeY = normalizedY.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: return
+        overlay.setCursorPosition(safeX, safeY)
+    }
+
+    private fun dispatchTrackpadTap(
+        normalizedX: Float,
+        normalizedY: Float,
+        longPress: Boolean
+    ) {
+        val web = currentWebView() ?: return
+        val safeNormalizedX = normalizedX.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: return
+        val safeNormalizedY = normalizedY.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: return
+        if (!web.isAttachedToWindow || web.width <= 0 || web.height <= 0) {
+            return
+        }
+
+        val obscuredBottom = if (binding.toolbar.visibility == View.VISIBLE) {
+            binding.toolbar.height
+        } else {
+            0
+        }
+        val targetWidth = web.width.coerceAtLeast(1)
+        val targetHeight = (web.height - obscuredBottom).coerceAtLeast(1)
+        val x = safeNormalizedX * (targetWidth - 1)
+        val y = safeNormalizedY * (targetHeight - 1)
+        val downTime = SystemClock.uptimeMillis()
+        val gestureId = trackpadGestureSequence.incrementAndGet()
+        dispatchTouchToWebView(
+            web = web,
+            action = MotionEvent.ACTION_DOWN,
+            x = x,
+            y = y,
+            downTime = downTime,
+            eventTime = downTime
+        )
+
+        uiHandler.postDelayed(
+            {
+                if (gestureId != trackpadGestureSequence.get()) {
+                    return@postDelayed
+                }
+                if (isFinishing || isDestroyed || web !== currentWebView() || !web.isAttachedToWindow) {
+                    return@postDelayed
+                }
+                dispatchTouchToWebView(
+                    web = web,
+                    action = MotionEvent.ACTION_UP,
+                    x = x,
+                    y = y,
+                    downTime = downTime,
+                    eventTime = SystemClock.uptimeMillis()
+                )
+                publishBrowserState()
+                scheduleCapture(TRACKPAD_CAPTURE_DELAY_MS)
+            },
+            if (longPress) TRACKPAD_LONG_PRESS_UP_DELAY_MS else TRACKPAD_TAP_UP_DELAY_MS
+        )
+    }
+
+    private fun dispatchTouchToWebView(
+        web: SyncWebView,
+        action: Int,
+        x: Float,
+        y: Float,
+        downTime: Long,
+        eventTime: Long
+    ) {
+        val event = MotionEvent.obtain(downTime, eventTime, action, x, y, 0)
+        runCatching {
+            web.dispatchTouchEvent(event)
+        }
+        event.recycle()
+    }
+
+    private fun applyTrackpadScroll(deltaX: Float, deltaY: Float) {
+        if (!deltaX.isFinite() || !deltaY.isFinite()) {
+            return
+        }
+        val web = currentWebView() ?: return
+        val clampedDeltaX = deltaX.coerceIn(-MAX_TRACKPAD_DELTA, MAX_TRACKPAD_DELTA)
+        val clampedDeltaY = deltaY.coerceIn(-MAX_TRACKPAD_DELTA, MAX_TRACKPAD_DELTA)
+        val pageWidth = max(web.width, web.pageContentWidth()).coerceAtLeast(1)
+        val pageHeight = max(web.height, web.pageContentHeight()).coerceAtLeast(1)
+        val maxScrollX = (pageWidth - web.width.coerceAtLeast(1)).coerceAtLeast(0)
+        val maxScrollY = (pageHeight - web.height.coerceAtLeast(1)).coerceAtLeast(0)
+        val targetX = (web.scrollX + (clampedDeltaX * TRACKPAD_SCROLL_MULTIPLIER).roundToInt())
+            .coerceIn(0, maxScrollX)
+        val targetY = (web.scrollY + (clampedDeltaY * TRACKPAD_SCROLL_MULTIPLIER).roundToInt())
+            .coerceIn(0, maxScrollY)
+        if (targetX == web.scrollX && targetY == web.scrollY) {
+            return
+        }
+        web.scrollTo(targetX, targetY)
+        publishBrowserState()
+        scheduleCapture(TRACKPAD_CAPTURE_DELAY_MS)
+    }
+
     private fun showTabsDialog() {
         if (tabs.isEmpty()) {
             return
@@ -1758,7 +2154,7 @@ class ZoomActivity : AppCompatActivity() {
             "$marker${index + 1}. $pinTag$label"
         }
 
-        MaterialAlertDialogBuilder(this)
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.tabs_dialog_title)
             .setItems(labels.toTypedArray()) { _, which ->
                 switchToTab(which)
@@ -1770,7 +2166,8 @@ class ZoomActivity : AppCompatActivity() {
                 createTab(initialUrl = homeUrl(), switchToTab = true)
             }
             .setNegativeButton(R.string.url_dialog_cancel, null)
-            .show()
+            .create()
+        showManagedDialog(dialog)
     }
 
     private fun togglePinnedCurrentTab() {
@@ -1788,7 +2185,7 @@ class ZoomActivity : AppCompatActivity() {
 
     private fun showBookmarksDialog() {
         val entries = BrowserBookmarkStore.list(this).take(MAX_BOOKMARK_DIALOG_ITEMS)
-        val dialog = MaterialAlertDialogBuilder(this)
+        val builder = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.bookmarks_dialog_title)
             .setPositiveButton(R.string.bookmarks_add_current) { _, _ ->
                 addCurrentPageBookmark(markFavorite = false)
@@ -1799,19 +2196,19 @@ class ZoomActivity : AppCompatActivity() {
             .setNegativeButton(R.string.url_dialog_cancel, null)
 
         if (entries.isEmpty()) {
-            dialog.setMessage(R.string.bookmarks_empty)
+            builder.setMessage(R.string.bookmarks_empty)
         } else {
             val labels = entries.map { entry ->
                 val favoriteTag = if (entry.favorite) "[FAV] " else ""
                 val label = entry.title.ifBlank { entry.url }
                 "$favoriteTag$label"
             }
-            dialog.setItems(labels.toTypedArray()) { _, which ->
+            builder.setItems(labels.toTypedArray()) { _, which ->
                 loadUrlInCurrentTab(entries[which].url)
             }
         }
 
-        dialog.show()
+        showManagedDialog(builder.create())
     }
 
     private fun addCurrentPageBookmark(markFavorite: Boolean) {
@@ -1909,7 +2306,7 @@ class ZoomActivity : AppCompatActivity() {
             }
         }
 
-        dialog.show()
+        showManagedDialog(dialog)
     }
 
     private fun copyCurrentUrlToClipboard() {
@@ -1959,14 +2356,16 @@ class ZoomActivity : AppCompatActivity() {
         val normalizedHost = normalizeHost(rawHost)
         val hostLabel = normalizedHost ?: url
         if (normalizedHost != null && isTrustedExternalHost(normalizedHost)) {
-            MaterialAlertDialogBuilder(this)
+            showManagedDialog(
+                MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.external_link_prompt_title)
                 .setMessage(getString(R.string.external_link_prompt_message, hostLabel))
                 .setPositiveButton(R.string.external_link_prompt_open) { _, _ ->
                     loadUrlInCurrentTab(url)
                 }
                 .setNegativeButton(R.string.url_dialog_cancel, null)
-                .show()
+                .create()
+            )
             return
         }
 
@@ -1989,7 +2388,20 @@ class ZoomActivity : AppCompatActivity() {
             }
         }
 
-        builder.show()
+        showManagedDialog(builder.create())
+    }
+
+    private fun showManagedDialog(dialog: AlertDialog) {
+        runCatching { activeDialog?.dismiss() }
+        activeDialog = dialog
+        dialog.setOnDismissListener {
+            if (activeDialog === dialog) {
+                activeDialog = null
+            }
+        }
+        if (!isFinishing && !isDestroyed) {
+            runCatching { dialog.show() }
+        }
     }
 
     private fun loadUrlInCurrentTab(url: String) {
@@ -2008,7 +2420,7 @@ class ZoomActivity : AppCompatActivity() {
     }
 
     private fun normalizeInput(rawInput: String, allowSearch: Boolean): String {
-        val value = rawInput.trim()
+        val value = rawInput.trim().take(MAX_NAV_INPUT_LENGTH)
         if (value.isEmpty()) {
             return homeUrl()
         }
@@ -2030,6 +2442,7 @@ class ZoomActivity : AppCompatActivity() {
     private fun refreshPreferences(reloadCurrent: Boolean) {
         val previousPreferences = currentPreferences
         currentPreferences = BrowserSettingsStore.load(this)
+        applyFrameRateMode()
         val privateModeChanged =
             previousPreferences.privateBrowsingEnabled != currentPreferences.privateBrowsingEnabled
 
@@ -2043,8 +2456,13 @@ class ZoomActivity : AppCompatActivity() {
             }
         }
 
+        applyScreenRoleLayout()
         applyPreferencesToAllTabs(currentPreferences, reloadCurrent)
         applyChromeStyle()
+    }
+
+    private fun applyFrameRateMode() {
+        snapshotMinCaptureIntervalMs = currentPreferences.frameRateMode.frameIntervalMs()
     }
 
     private fun applyPreferencesToAllTabs(
@@ -2191,6 +2609,11 @@ class ZoomActivity : AppCompatActivity() {
         binding.webContainer.setBackgroundColor(innerColor)
         binding.toolbar.setBackgroundColor(toolbarColor)
         binding.toolbarHandle.backgroundTintList = ColorStateList.valueOf(handleColor)
+        binding.cursorOverlay.applyThemeColors(
+            accentColor = accent,
+            accentSoftColor = accentSoft
+        )
+        binding.cursorOverlay.setCursorShape(currentPreferences.cursorShape)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -2203,6 +2626,8 @@ class ZoomActivity : AppCompatActivity() {
         insetsController.isAppearanceLightNavigationBars = useLightSystemBars
         binding.loadProgress.progressTintList = ColorStateList.valueOf(accent)
         binding.loadProgress.progressBackgroundTintList = ColorStateList.valueOf(trackColor)
+        binding.swipeRefresh.setColorSchemeColors(accent)
+        binding.swipeRefresh.setProgressBackgroundColorSchemeColor(trackColor)
         binding.tabInfoText.backgroundTintList = ColorStateList.valueOf(accentSoft)
         binding.tabInfoText.setTextColor(accent)
 
@@ -2253,6 +2678,7 @@ class ZoomActivity : AppCompatActivity() {
         binding.desktopButton.setTextColor(
             if (currentPreferences.desktopMode) secondaryAccent else textColor
         )
+        binding.urlButton.setTextColor(accent)
         readerActiveButtonTextColor = secondaryAccent
         readerInactiveButtonTextColor = textColor
         updateReaderButtonState()
@@ -2262,6 +2688,7 @@ class ZoomActivity : AppCompatActivity() {
             canGoBack = web?.canGoBack() == true,
             canGoForward = web?.canGoForward() == true
         )
+        updateUrlBarText()
 
         tabs.forEach { tab ->
             tab.webView.setBackgroundColor(pageBackgroundColor(currentPreferences))
@@ -2375,6 +2802,9 @@ class ZoomActivity : AppCompatActivity() {
     }
 
     private fun publishBrowserState() {
+        if (isFinishing || isDestroyed) {
+            return
+        }
         val web = currentWebView() ?: return
 
         val contentWidth = web.pageContentWidth()
@@ -2429,6 +2859,22 @@ class ZoomActivity : AppCompatActivity() {
             canGoForward = web.canGoForward()
         )
         updateNavigationButtonsState(canGoBack = web.canGoBack(), canGoForward = web.canGoForward())
+        updateUrlBarText()
+    }
+
+    private fun updateUrlBarText() {
+        val web = currentWebView()
+        val raw = web?.url.orEmpty().trim()
+        val label = when {
+            raw.isBlank() -> getString(R.string.url_bar_placeholder)
+            raw.startsWith("about:blank", ignoreCase = true) -> getString(R.string.url_bar_placeholder)
+            else -> raw
+                .removePrefix("https://")
+                .removePrefix("http://")
+                .removePrefix("www.")
+                .let { if (it.length > URL_BAR_MAX_TEXT_LENGTH) it.take(URL_BAR_MAX_TEXT_LENGTH - 1) + "…" else it }
+        }
+        binding.urlButton.text = label
     }
 
     @Suppress("DEPRECATION")
@@ -2454,6 +2900,10 @@ class ZoomActivity : AppCompatActivity() {
             lastSnapshotCaptureAtMs = SystemClock.elapsedRealtime()
         } catch (_: Throwable) {
             // Ignore snapshot failures; viewport sync still works.
+        } finally {
+            if (!isDestroyed && !isFinishing) {
+                scheduleCapture(snapshotMinCaptureIntervalMs)
+            }
         }
     }
 
@@ -2467,12 +2917,17 @@ class ZoomActivity : AppCompatActivity() {
         val plans = buildSnapshotPlans(picture.width, picture.height)
         for (plan in plans) {
             val bitmap = tryAcquireSnapshotBitmap(plan.width, plan.height) ?: continue
-            val canvas = Canvas(bitmap)
-            canvas.drawColor(pageBackgroundColor(currentPreferences))
-            canvas.save()
-            canvas.scale(plan.scale, plan.scale)
-            picture.draw(canvas)
-            canvas.restore()
+            val rendered = runCatching {
+                val canvas = Canvas(bitmap)
+                canvas.drawColor(pageBackgroundColor(currentPreferences))
+                canvas.save()
+                canvas.scale(plan.scale, plan.scale)
+                picture.draw(canvas)
+                canvas.restore()
+            }.isSuccess
+            if (!rendered) {
+                continue
+            }
 
             val currentUrl = web.url.orEmpty()
             if (currentUrl.isNotBlank() &&
@@ -2561,9 +3016,10 @@ class ZoomActivity : AppCompatActivity() {
 
     private fun scheduleCapture(delayMs: Long) {
         val now = SystemClock.elapsedRealtime()
-        val minDelay = (lastSnapshotCaptureAtMs + SNAPSHOT_MIN_CAPTURE_INTERVAL_MS - now)
+        val minDelay = (lastSnapshotCaptureAtMs + snapshotMinCaptureIntervalMs - now)
             .coerceAtLeast(0L)
-        val targetDelay = max(delayMs, minDelay)
+        val requestedDelay = delayMs.coerceAtLeast(0L).coerceAtMost(snapshotMinCaptureIntervalMs)
+        val targetDelay = max(requestedDelay, minDelay)
         captureHandler.removeCallbacks(captureRunnable)
         captureHandler.postDelayed(captureRunnable, targetDelay)
     }
@@ -2575,7 +3031,12 @@ class ZoomActivity : AppCompatActivity() {
             val scale = computeSnapshotScale(width, height, pixelBudget)
             val targetWidth = max(1, (width * scale).roundToInt())
             val targetHeight = max(1, (height * scale).roundToInt())
-            if (targetWidth <= 0 || targetHeight <= 0) {
+            val targetPixels = targetWidth.toLong() * targetHeight.toLong()
+            if (targetWidth <= 0 || targetHeight <= 0 ||
+                targetWidth > SNAPSHOT_MAX_EDGE_PX ||
+                targetHeight > SNAPSHOT_MAX_EDGE_PX ||
+                targetPixels > MAX_SNAPSHOT_BITMAP_PIXELS
+            ) {
                 null
             } else {
                 SnapshotPlan(
@@ -2605,12 +3066,20 @@ class ZoomActivity : AppCompatActivity() {
 
     private fun tryAcquireSnapshotBitmap(width: Int, height: Int): Bitmap? {
         return try {
-            obtainSnapshotBitmap(width, height)
+            synchronized(snapshotBitmapLock) {
+                obtainSnapshotBitmap(width, height)
+            }
         } catch (_: OutOfMemoryError) {
-            reusableSnapshotBitmap = null
+            synchronized(snapshotBitmapLock) {
+                runCatching { reusableSnapshotBitmap?.recycle() }
+                reusableSnapshotBitmap = null
+            }
             null
         } catch (_: IllegalArgumentException) {
-            reusableSnapshotBitmap = null
+            synchronized(snapshotBitmapLock) {
+                runCatching { reusableSnapshotBitmap?.recycle() }
+                reusableSnapshotBitmap = null
+            }
             null
         }
     }
@@ -2623,6 +3092,10 @@ class ZoomActivity : AppCompatActivity() {
             existing.height == height
         ) {
             return existing
+        }
+
+        if (existing != null && !existing.isRecycled) {
+            runCatching { existing.recycle() }
         }
 
         return Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565).also { created ->
@@ -2820,13 +3293,17 @@ class ZoomActivity : AppCompatActivity() {
 
     private fun parseReaderPayload(rawResult: String?): ReaderPayload? {
         val decoded = decodeJavascriptStringResult(rawResult) ?: return null
+        if (decoded.length > MAX_READER_JSON_LENGTH) {
+            return null
+        }
         val json = runCatching { JSONObject(decoded) }.getOrNull() ?: return null
-        val title = json.optString("title").orEmpty().trim()
+        val title = json.optString("title").orEmpty().trim().take(MAX_READER_TITLE_LENGTH)
         val blocksJson = json.optJSONArray("blocks") ?: return null
         val blocks = mutableListOf<ReaderBlock>()
-        for (i in 0 until blocksJson.length()) {
+        val maxBlocks = min(blocksJson.length(), MAX_READER_BLOCKS)
+        for (i in 0 until maxBlocks) {
             val block = blocksJson.optJSONObject(i) ?: continue
-            val text = block.optString("text").orEmpty().trim()
+            val text = block.optString("text").orEmpty().trim().take(MAX_READER_TEXT_LENGTH)
             if (text.isEmpty()) {
                 continue
             }
@@ -2844,9 +3321,12 @@ class ZoomActivity : AppCompatActivity() {
         if (rawResult.isNullOrBlank() || rawResult == "null") {
             return null
         }
+        if (rawResult.length > MAX_READER_JSON_LENGTH) {
+            return null
+        }
         return runCatching {
             JSONArray("[$rawResult]").getString(0)
-        }.getOrNull()
+        }.getOrNull()?.takeIf { it.length <= MAX_READER_JSON_LENGTH }
     }
 
     private fun buildReaderHtml(
@@ -3009,6 +3489,7 @@ class ZoomActivity : AppCompatActivity() {
 
     private fun handleRenderProcessGone(webView: SyncWebView) {
         if (isDestroyed || isFinishing) return
+        webView.onScrollChangedListener = null
         val crashedTab = tabsByWebView.remove(webView) ?: return
         val currentTabId = tabs.getOrNull(currentTabIndex)?.id
         val crashedIndex = tabs.indexOfFirst { it.id == crashedTab.id }
@@ -3070,6 +3551,9 @@ class ZoomActivity : AppCompatActivity() {
     }
 
     private fun parseUriSafely(value: String): Uri? {
+        if (value.length > MAX_URI_LENGTH) {
+            return null
+        }
         return runCatching { Uri.parse(value) }.getOrNull()
     }
 
@@ -3082,7 +3566,13 @@ class ZoomActivity : AppCompatActivity() {
         if (normalized.isBlank()) {
             return null
         }
+        if (normalized.length > 253) {
+            return null
+        }
         if (normalized.any { it.isWhitespace() }) {
+            return null
+        }
+        if (normalized.contains("/") || normalized.contains("\\")) {
             return null
         }
         return normalized
@@ -3132,7 +3622,7 @@ class ZoomActivity : AppCompatActivity() {
         SecureBrowserPrefs.get(this)
             .edit()
             .putString(KEY_TRUSTED_EXTERNAL_HOSTS, output.toString())
-            .apply()
+            .commit()
     }
 
     private fun isUnsafeSubresourceUri(uri: Uri): Boolean {
@@ -3152,7 +3642,10 @@ class ZoomActivity : AppCompatActivity() {
     }
 
     private fun looksLikeDomain(value: String): Boolean {
-        return value.contains('.') && value.none { it.isWhitespace() }
+        val normalized = value.trim()
+        return normalized.contains('.') &&
+            !normalized.contains("..") &&
+            normalized.none { it.isWhitespace() }
     }
 
     private fun blockedResourceResponse(): WebResourceResponse {
@@ -3171,28 +3664,42 @@ class ZoomActivity : AppCompatActivity() {
     }
 
     private fun loadUrlWithPrivacyHeaders(webView: SyncWebView, url: String) {
+        if (url.length > MAX_URI_LENGTH) {
+            return
+        }
         if (!shouldSendPrivacySignals()) {
-            webView.loadUrl(url)
+            runCatching { webView.loadUrl(url) }
             return
         }
 
-        webView.loadUrl(
-            url,
-            mapOf(
-                "DNT" to "1",
-                "Sec-GPC" to "1"
+        runCatching {
+            webView.loadUrl(
+                url,
+                mapOf(
+                    "DNT" to "1",
+                    "Sec-GPC" to "1"
+                )
             )
-        )
+        }.onFailure {
+            runCatching { webView.loadUrl(url) }
+        }
     }
 
     private fun enqueueHistoryEntry(title: String, url: String) {
         runCatching {
+            if (persistenceExecutor.isShutdown) {
+                return
+            }
             persistenceExecutor.execute {
                 BrowserHistoryStore.add(
                     context = applicationContext,
                     title = title,
                     url = url
                 )
+            }
+        }.recoverCatching {
+            if (it !is RejectedExecutionException) {
+                throw it
             }
         }
     }
@@ -3210,20 +3717,28 @@ class ZoomActivity : AppCompatActivity() {
         val cookieManager = CookieManager.getInstance()
         // removeAllCookies is async; await callback briefly so exit wipes are not purely best-effort.
         val cookieClearLatch = CountDownLatch(1)
+        val cookieCallbackHandled = AtomicBoolean(false)
         val removeAllSubmitted = runCatching {
             cookieManager.removeAllCookies {
-                cookieClearLatch.countDown()
+                if (cookieCallbackHandled.compareAndSet(false, true)) {
+                    cookieClearLatch.countDown()
+                }
             }
         }.isSuccess
         runCatching {
             cookieManager.removeSessionCookies {
-                cookieClearLatch.countDown()
+                if (cookieCallbackHandled.compareAndSet(false, true)) {
+                    cookieClearLatch.countDown()
+                }
             }
         }
         if (removeAllSubmitted) {
             runCatching {
                 cookieClearLatch.await(COOKIE_CLEAR_WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
             }
+        }
+        runCatching {
+            cookieManager.removeSessionCookies(null)
         }
         cookieManager.flush()
 
@@ -3285,7 +3800,10 @@ class ZoomActivity : AppCompatActivity() {
     }
 
     private fun releaseSnapshotCache() {
-        reusableSnapshotBitmap = null
+        synchronized(snapshotBitmapLock) {
+            runCatching { reusableSnapshotBitmap?.recycle() }
+            reusableSnapshotBitmap = null
+        }
         // Preserve the snapshot in BrowserSyncBus during a screen swap so that
         // OverviewActivity can render the map immediately when it starts.
         if (!isFinishingForScreenSwap) {
@@ -3328,7 +3846,8 @@ class ZoomActivity : AppCompatActivity() {
         private const val MAX_TABS = 10
         private const val MAX_TRUSTED_EXTERNAL_HOSTS = 64
         private const val TOAST_COOLDOWN_MS = 1800L
-        private const val COOKIE_CLEAR_WAIT_TIMEOUT_MS = 400L
+        private const val COOKIE_CLEAR_WAIT_TIMEOUT_MS = 1000L
+        private const val PERSISTENCE_SHUTDOWN_TIMEOUT_MS = 800L
         private const val SCREEN_SWAP_DEBOUNCE_MS = 320L
         private const val SCREEN_SWAP_GLOBAL_LOCK_MS = 650L
         private const val SCREEN_SWAP_RETRY_DELAY_MS = 180L
@@ -3340,11 +3859,27 @@ class ZoomActivity : AppCompatActivity() {
         private const val DOWNLOAD_SPAM_WINDOW_MS = 10_000L
         private const val MAX_DOWNLOAD_ATTEMPTS_PER_WINDOW = 3
         private const val MAX_BOOKMARK_DIALOG_ITEMS = 40
-        private const val SNAPSHOT_MIN_CAPTURE_INTERVAL_MS = 200L
+        private const val DEFAULT_SNAPSHOT_MIN_CAPTURE_INTERVAL_MS = 33L
         private const val SESSION_PERSIST_DEBOUNCE_MS = 280L
         private const val SNAPSHOT_MAX_EDGE_PX = 4_096
+        private const val MAX_SNAPSHOT_BITMAP_PIXELS = 10_000_000L
+        private const val MAX_NAV_INPUT_LENGTH = 2048
+        private const val MAX_URI_LENGTH = 8192
+        private const val MAX_READER_JSON_LENGTH = 120_000
+        private const val MAX_READER_TITLE_LENGTH = 180
+        private const val MAX_READER_BLOCKS = 260
+        private const val MAX_READER_TEXT_LENGTH = 3_000
+        private const val TRACKPAD_TAP_UP_DELAY_MS = 28L
+        private const val TRACKPAD_LONG_PRESS_UP_DELAY_MS = 560L
+        private const val TRACKPAD_CAPTURE_DELAY_MS = 120L
+        private const val TRACKPAD_SCROLL_MULTIPLIER = 1.35f
+        private const val MAX_TRACKPAD_DELTA = 600f
+        private const val URL_BAR_MAX_TEXT_LENGTH = 44
         private const val TOOLBAR_PULL_THRESHOLD_DP = 18f
         private const val TOOLBAR_DISMISS_PULL_THRESHOLD_DP = 22f
+        private const val TOOLBAR_HANDLE_LONG_SIDE_DP = 72f
+        private const val TOOLBAR_HANDLE_SHORT_SIDE_DP = 16f
+        private const val TOOLBAR_HANDLE_MARGIN_DP = 8f
         private const val URL_BAR_AUTO_HIDE_DELAY_MS = 4500L
         private const val TAB_SWITCH_TRAVEL_RATIO = 0.1f
         private const val TAB_SWITCH_OUT_TRAVEL_RATIO = 0.5f

@@ -14,7 +14,7 @@ class SyncWebView @JvmOverloads constructor(
 
     var onScrollChangedListener: (() -> Unit)? = null
     private var lastScrollCallbackAtMs: Long = 0L
-    private val scrollCallbackThrottleMs: Long = 50L
+    private val scrollCallbackThrottleMs: Long = SCROLL_CALLBACK_THROTTLE_MS
     
     // NASA standard: track attachment state for proper cleanup
     private var isViewAttached: Boolean = false
@@ -37,7 +37,8 @@ class SyncWebView @JvmOverloads constructor(
         val now = SystemClock.elapsedRealtime()
         if (now - lastScrollCallbackAtMs >= scrollCallbackThrottleMs) {
             lastScrollCallbackAtMs = now
-            onScrollChangedListener?.invoke()
+            val listener = onScrollChangedListener
+            runCatching { listener?.invoke() }
             
             // Accessibility: Announce significant scroll changes for screen readers
             if (isAccessibilityFocused && (l != oldl || t != oldt)) {
@@ -49,16 +50,26 @@ class SyncWebView @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         isViewAttached = true
+        lastScrollCallbackAtMs = 0L
     }
     
     override fun onDetachedFromWindow() {
         isViewAttached = false
         // NASA standard: clear callbacks on detach to prevent memory leaks
         onScrollChangedListener = null
+        lastScrollCallbackAtMs = 0L
         super.onDetachedFromWindow()
     }
 
-    fun pageContentWidth(): Int = computeHorizontalScrollRange().coerceAtLeast(1)
+    fun pageContentWidth(): Int {
+        return runCatching { computeHorizontalScrollRange() }.getOrDefault(1).coerceAtLeast(1)
+    }
 
-    fun pageContentHeight(): Int = computeVerticalScrollRange().coerceAtLeast(1)
+    fun pageContentHeight(): Int {
+        return runCatching { computeVerticalScrollRange() }.getOrDefault(1).coerceAtLeast(1)
+    }
+
+    private companion object {
+        private const val SCROLL_CALLBACK_THROTTLE_MS = 50L
+    }
 }

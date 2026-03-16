@@ -7,6 +7,8 @@ import android.content.res.Configuration
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -17,6 +19,7 @@ import android.widget.TextView
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
@@ -27,8 +30,12 @@ import com.ayn.magni.data.BrowserHistoryStore
 import com.ayn.magni.data.BrowserPreferences
 import com.ayn.magni.data.BrowserSettingsStore
 import com.ayn.magni.data.AccentPalette
+import com.ayn.magni.data.BottomScreenFeedbackEffect
+import com.ayn.magni.data.CursorShape
+import com.ayn.magni.data.FrameRateMode
 import com.ayn.magni.data.SearchEngine
 import com.ayn.magni.data.ThemeMode
+import com.ayn.magni.data.ToolbarPillEdge
 import com.ayn.magni.databinding.ActivitySettingsBinding
 import com.ayn.magni.databinding.ItemBookmarkEntryBinding
 import com.ayn.magni.databinding.ItemHistoryEntryBinding
@@ -50,9 +57,19 @@ class SettingsActivity : AppCompatActivity() {
         ThemeMode.DSI_CLASSIC_DARK
     )
     private val accentPalettes = AccentPalette.entries.toList()
+    private val cursorShapes = CursorShape.entries.toList()
+    private val bottomFeedbackEffects = BottomScreenFeedbackEffect.entries.toList()
+    private val frameRateModes = FrameRateMode.entries.toList()
     private val searchEngines = SearchEngine.entries.toList()
+    private val toolbarPillEdges = ToolbarPillEdge.entries.toList()
+    private val uiHandler = Handler(Looper.getMainLooper())
+    private var activeDialog: AlertDialog? = null
+    private var cachedHistoryEntries = emptyList<com.ayn.magni.data.HistoryEntry>()
+    private var cachedBookmarkEntries = emptyList<com.ayn.magni.data.BookmarkEntry>()
     private var historyFilterQuery = ""
     private var bookmarksFilterQuery = ""
+    private val renderHistoryRunnable = Runnable { renderHistory() }
+    private val renderBookmarksRunnable = Runnable { renderBookmarks() }
 
     private val dateFormatter: DateFormat by lazy {
         DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
@@ -66,6 +83,8 @@ class SettingsActivity : AppCompatActivity() {
 
         setupPickers()
         loadPreferencesIntoUi()
+        refreshHistoryData()
+        refreshBookmarksData()
         configureFilters()
         renderHistory()
         renderBookmarks()
@@ -95,10 +114,58 @@ class SettingsActivity : AppCompatActivity() {
             accentPalettes.map { it.label }
         )
 
+        val cursorShapeLabels = listOf(
+            getString(R.string.settings_cursor_shape_crosshair),
+            getString(R.string.settings_cursor_shape_dot),
+            getString(R.string.settings_cursor_shape_ring)
+        )
+        binding.cursorShapeSpinner.adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            cursorShapeLabels
+        )
+
+        val feedbackEffectLabels = listOf(
+            getString(R.string.settings_bottom_feedback_aurora),
+            getString(R.string.settings_bottom_feedback_ring),
+            getString(R.string.settings_bottom_feedback_comet),
+            getString(R.string.settings_bottom_feedback_pixel)
+        )
+        binding.bottomFeedbackEffectSpinner.adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            feedbackEffectLabels
+        )
+
+        val frameRateLabels = listOf(
+            getString(R.string.settings_frame_rate_30),
+            getString(R.string.settings_frame_rate_60),
+            getString(R.string.settings_frame_rate_120)
+        )
+        binding.frameRateSpinner.adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            frameRateLabels
+        )
+
         binding.searchEngineSpinner.adapter = ArrayAdapter(
             this,
             android.R.layout.simple_spinner_dropdown_item,
             searchEngines.map { it.label }
+        )
+
+        val toolbarPillEdgeLabels = toolbarPillEdges.map { edge ->
+            when (edge) {
+                ToolbarPillEdge.TOP -> getString(R.string.settings_pill_edge_top)
+                ToolbarPillEdge.BOTTOM -> getString(R.string.settings_pill_edge_bottom)
+                ToolbarPillEdge.LEFT -> getString(R.string.settings_pill_edge_left)
+                ToolbarPillEdge.RIGHT -> getString(R.string.settings_pill_edge_right)
+            }
+        }
+        binding.toolbarPillEdgeSpinner.adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            toolbarPillEdgeLabels
         )
     }
 
@@ -109,7 +176,19 @@ class SettingsActivity : AppCompatActivity() {
         binding.accentSpinner.setSelection(
             accentPalettes.indexOf(prefs.accentPalette).coerceAtLeast(0)
         )
+        binding.cursorShapeSpinner.setSelection(
+            cursorShapes.indexOf(prefs.cursorShape).coerceAtLeast(0)
+        )
+        binding.bottomFeedbackEffectSpinner.setSelection(
+            bottomFeedbackEffects.indexOf(prefs.bottomScreenFeedbackEffect).coerceAtLeast(0)
+        )
+        binding.frameRateSpinner.setSelection(
+            frameRateModes.indexOf(prefs.frameRateMode).coerceAtLeast(0)
+        )
         binding.searchEngineSpinner.setSelection(searchEngines.indexOf(prefs.searchEngine).coerceAtLeast(0))
+        binding.toolbarPillEdgeSpinner.setSelection(
+            toolbarPillEdges.indexOf(prefs.toolbarPillEdge).coerceAtLeast(0)
+        )
 
         binding.homepageEdit.setText(prefs.homepage)
 
@@ -145,11 +224,12 @@ class SettingsActivity : AppCompatActivity() {
                 .setMessage(R.string.settings_clear_history_confirm)
                 .setPositiveButton(R.string.settings_clear_history) { _, _ ->
                     BrowserHistoryStore.clear(this)
+                    refreshHistoryData()
                     renderHistory()
                 }
                 .setNegativeButton(R.string.url_dialog_cancel, null)
                 .create()
-            runCatching { dialog.show() }
+            showManagedDialog(dialog)
         }
 
         binding.clearBookmarksButton.setOnClickListener {
@@ -161,11 +241,12 @@ class SettingsActivity : AppCompatActivity() {
                 .setMessage(R.string.settings_clear_bookmarks_confirm)
                 .setPositiveButton(R.string.settings_clear_bookmarks) { _, _ ->
                     BrowserBookmarkStore.clear(this)
+                    refreshBookmarksData()
                     renderBookmarks()
                 }
                 .setNegativeButton(R.string.url_dialog_cancel, null)
                 .create()
-            runCatching { dialog.show() }
+            showManagedDialog(dialog)
         }
 
         binding.clearBrowsingDataNowButton.setOnClickListener {
@@ -181,19 +262,29 @@ class SettingsActivity : AppCompatActivity() {
                 }
                 .setNegativeButton(R.string.url_dialog_cancel, null)
                 .create()
-            runCatching { dialog.show() }
+            showManagedDialog(dialog)
         }
     }
 
     private fun configureFilters() {
         binding.historySearchEdit.doAfterTextChanged { editable ->
-            historyFilterQuery = editable?.toString().orEmpty().trim()
-            renderHistory()
+            val nextQuery = editable?.toString().orEmpty().trim()
+            if (nextQuery == historyFilterQuery) {
+                return@doAfterTextChanged
+            }
+            historyFilterQuery = nextQuery
+            uiHandler.removeCallbacks(renderHistoryRunnable)
+            uiHandler.postDelayed(renderHistoryRunnable, FILTER_RENDER_DEBOUNCE_MS)
         }
 
         binding.bookmarksSearchEdit.doAfterTextChanged { editable ->
-            bookmarksFilterQuery = editable?.toString().orEmpty().trim()
-            renderBookmarks()
+            val nextQuery = editable?.toString().orEmpty().trim()
+            if (nextQuery == bookmarksFilterQuery) {
+                return@doAfterTextChanged
+            }
+            bookmarksFilterQuery = nextQuery
+            uiHandler.removeCallbacks(renderBookmarksRunnable)
+            uiHandler.postDelayed(renderBookmarksRunnable, FILTER_RENDER_DEBOUNCE_MS)
         }
     }
 
@@ -201,7 +292,7 @@ class SettingsActivity : AppCompatActivity() {
         if (isFinishing || isDestroyed) {
             return
         }
-        val entries = BrowserHistoryStore.list(this).take(40)
+        val entries = cachedHistoryEntries.take(40)
         val filtered = if (historyFilterQuery.isBlank()) {
             entries
         } else {
@@ -243,6 +334,7 @@ class SettingsActivity : AppCompatActivity() {
                     return@setOnClickListener
                 }
                 BrowserHistoryStore.remove(this, entry.id)
+                refreshHistoryData()
                 renderHistory()
             }
 
@@ -261,7 +353,7 @@ class SettingsActivity : AppCompatActivity() {
         if (isFinishing || isDestroyed) {
             return
         }
-        val entries = BrowserBookmarkStore.list(this).take(80)
+        val entries = cachedBookmarkEntries.take(80)
         val filtered = if (bookmarksFilterQuery.isBlank()) {
             entries
         } else {
@@ -314,6 +406,7 @@ class SettingsActivity : AppCompatActivity() {
                     url = entry.url,
                     favoriteOverride = !entry.favorite
                 )
+                refreshBookmarksData()
                 renderBookmarks()
             }
 
@@ -322,6 +415,7 @@ class SettingsActivity : AppCompatActivity() {
                     return@setOnClickListener
                 }
                 BrowserBookmarkStore.remove(this, entry.id)
+                refreshBookmarksData()
                 renderBookmarks()
             }
 
@@ -490,10 +584,31 @@ class SettingsActivity : AppCompatActivity() {
         val selectedAccent = accentPalettes.getOrElse(binding.accentSpinner.selectedItemPosition) {
             AccentPalette.ORANGE
         }
+        val selectedCursorShape = cursorShapes.getOrElse(binding.cursorShapeSpinner.selectedItemPosition) {
+            CursorShape.CROSSHAIR
+        }
+        val selectedFeedbackEffect = bottomFeedbackEffects.getOrElse(
+            binding.bottomFeedbackEffectSpinner.selectedItemPosition
+        ) {
+            BottomScreenFeedbackEffect.AURORA
+        }
+        val selectedFrameRate = frameRateModes.getOrElse(
+            binding.frameRateSpinner.selectedItemPosition
+        ) {
+            FrameRateMode.FPS_30
+        }
+        val selectedPillEdge = toolbarPillEdges.getOrElse(
+            binding.toolbarPillEdgeSpinner.selectedItemPosition
+        ) {
+            ToolbarPillEdge.BOTTOM
+        }
 
         val state = BrowserPreferences(
             themeMode = selectedTheme,
             accentPalette = selectedAccent,
+            cursorShape = selectedCursorShape,
+            bottomScreenFeedbackEffect = selectedFeedbackEffect,
+            frameRateMode = selectedFrameRate,
             homepage = BrowserSettingsStore.sanitizedHomepage(
                 binding.homepageEdit.text?.toString().orEmpty()
             ),
@@ -508,6 +623,7 @@ class SettingsActivity : AppCompatActivity() {
             blockTrackers = binding.blockTrackersSwitch.isChecked,
             stripTrackingParameters = binding.stripTrackingParamsSwitch.isChecked,
             httpsOnlyMode = binding.httpsOnlyModeSwitch.isChecked,
+            toolbarPillEdge = selectedPillEdge,
             clearBrowsingDataOnExit = binding.clearDataOnExitSwitch.isChecked
         )
 
@@ -542,9 +658,41 @@ class SettingsActivity : AppCompatActivity() {
         finish()
     }
 
+    override fun onDestroy() {
+        uiHandler.removeCallbacks(renderHistoryRunnable)
+        uiHandler.removeCallbacks(renderBookmarksRunnable)
+        runCatching { activeDialog?.dismiss() }
+        activeDialog = null
+        super.onDestroy()
+    }
+
+    private fun showManagedDialog(dialog: AlertDialog) {
+        runCatching { activeDialog?.dismiss() }
+        activeDialog = dialog
+        dialog.setOnDismissListener {
+            if (activeDialog === dialog) {
+                activeDialog = null
+            }
+        }
+        runCatching {
+            if (!isFinishing && !isDestroyed) {
+                dialog.show()
+            }
+        }
+    }
+
+    private fun refreshHistoryData() {
+        cachedHistoryEntries = BrowserHistoryStore.list(this)
+    }
+
+    private fun refreshBookmarksData() {
+        cachedBookmarkEntries = BrowserBookmarkStore.list(this)
+    }
+
     companion object {
         const val EXTRA_SETTINGS_CHANGED = "settings_changed"
         const val EXTRA_OPEN_URL = "open_url"
         const val EXTRA_CLEAR_BROWSING_DATA_NOW = "clear_browsing_data_now"
+        private const val FILTER_RENDER_DEBOUNCE_MS = 120L
     }
 }
