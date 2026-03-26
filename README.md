@@ -3,6 +3,7 @@
 [![Build Status](https://github.com/KuriGohan-Kamehameha/magni/actions/workflows/ci.yml/badge.svg)](https://github.com/KuriGohan-Kamehameha/magni/actions)
 [![Release](https://img.shields.io/github/v/release/KuriGohan-Kamehameha/magni)](https://github.com/KuriGohan-Kamehameha/magni/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Obtainium](https://img.shields.io/badge/Obtainium-available-blue)](https://github.com/ImranR98/Obtainium)
 
 <p align="left"><img src="magni.png" alt="Magni logo" width="200"/></p>
 
