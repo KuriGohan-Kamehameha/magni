@@ -69,6 +69,7 @@ import com.ayn.magni.data.BrowserHistoryStore
 import com.ayn.magni.data.BrowserPreferences
 import com.ayn.magni.data.BrowserSessionStore
 import com.ayn.magni.data.BrowserSettingsStore
+import com.ayn.magni.data.CookiePrivacyPolicy
 import com.ayn.magni.data.DisplayRoleStore
 import com.ayn.magni.data.SecureBrowserPrefs
 import com.ayn.magni.data.SessionTab
@@ -2316,16 +2317,25 @@ class ZoomActivity : AppCompatActivity() {
             return
         }
         val clipboard = getSystemService(ClipboardManager::class.java) ?: return
-        clipboard.setPrimaryClip(ClipData.newPlainText("url", url))
+        val copied = runCatching {
+            clipboard.setPrimaryClip(ClipData.newPlainText("url", url))
+        }.isSuccess
+        if (!copied) {
+            showThrottledToast(R.string.url_copy_unavailable_toast, TOAST_COOLDOWN_MS)
+            return
+        }
         showThrottledToast(R.string.settings_link_copied_toast, TOAST_COOLDOWN_MS)
     }
 
     private fun getClipboardText(): String? {
         val clipboard = getSystemService(ClipboardManager::class.java) ?: return null
-        if (!clipboard.hasPrimaryClip()) {
+        val clip = runCatching {
+            if (clipboard.hasPrimaryClip()) clipboard.primaryClip else null
+        }.getOrNull() ?: return null
+        if (clip.itemCount <= 0) {
             return null
         }
-        val item = clipboard.primaryClip?.getItemAt(0) ?: return null
+        val item = runCatching { clip.getItemAt(0) }.getOrNull() ?: return null
         return item.coerceToText(this)?.toString()?.trim()
     }
 
@@ -2520,8 +2530,20 @@ class ZoomActivity : AppCompatActivity() {
         }
 
         CookieManager.getInstance().apply {
-            setAcceptCookie(!prefs.privateBrowsingEnabled && !prefs.blockAllCookies)
-            setAcceptThirdPartyCookies(webView, false)
+            setAcceptCookie(
+                CookiePrivacyPolicy.acceptsFirstPartyCookies(
+                    privateBrowsingEnabled = prefs.privateBrowsingEnabled,
+                    blockAllCookies = prefs.blockAllCookies
+                )
+            )
+            setAcceptThirdPartyCookies(
+                webView,
+                CookiePrivacyPolicy.acceptsThirdPartyCookies(
+                    privateBrowsingEnabled = prefs.privateBrowsingEnabled,
+                    blockAllCookies = prefs.blockAllCookies,
+                    blockThirdPartyCookies = prefs.blockThirdPartyCookies
+                )
+            )
         }
     }
 

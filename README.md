@@ -163,7 +163,7 @@ Magni is built with privacy at its core:
 
 - No telemetry, analytics, or tracking.
 - All network requests are encrypted (HTTPS‑only).
-- Cookies are opt‑in and third‑party trackers are blocked.
+- Cookies are opt‑in, third‑party cookies are blocked by default, and third‑party trackers are blocked.
 - Code is fully open source for auditability.
 
 ## Architecture
@@ -195,5 +195,4 @@ Original development and maintenance by the above contributors. See the [LICENSE
 - AYN Thor dual-screen hardware.
 - Android WebView and AndroidX teams.
 - Copilot
-
 
