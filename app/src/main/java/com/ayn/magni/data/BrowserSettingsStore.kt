@@ -131,6 +131,7 @@ data class BrowserPreferences(
     val openLinksInNewTab: Boolean,
     val privateBrowsingEnabled: Boolean,
     val blockAllCookies: Boolean,
+    val blockThirdPartyCookies: Boolean,
     val sendDoNotTrack: Boolean,
     val blockTrackers: Boolean,
     val stripTrackingParameters: Boolean,
@@ -153,6 +154,7 @@ object BrowserSettingsStore {
     private const val KEY_OPEN_LINKS_IN_NEW_TAB = "open_links_new_tab"
     private const val KEY_PRIVATE_BROWSING = "private_browsing"
     private const val KEY_BLOCK_ALL_COOKIES = "block_all_cookies"
+    private const val KEY_BLOCK_THIRD_PARTY_COOKIES = "block_third_party_cookies"
     private const val KEY_DO_NOT_TRACK = "do_not_track"
     private const val KEY_BLOCK_TRACKERS = "block_trackers"
     private const val KEY_STRIP_TRACKING_PARAMETERS = "strip_tracking_parameters"
@@ -198,6 +200,11 @@ object BrowserSettingsStore {
             openLinksInNewTab = safeGetBoolean(prefs, KEY_OPEN_LINKS_IN_NEW_TAB, false),
             privateBrowsingEnabled = safeGetBoolean(prefs, KEY_PRIVATE_BROWSING, false),
             blockAllCookies = safeGetBoolean(prefs, KEY_BLOCK_ALL_COOKIES, false),
+            blockThirdPartyCookies = safeGetBoolean(
+                prefs,
+                KEY_BLOCK_THIRD_PARTY_COOKIES,
+                true
+            ),
             sendDoNotTrack = safeGetBoolean(prefs, KEY_DO_NOT_TRACK, true),
             blockTrackers = safeGetBoolean(prefs, KEY_BLOCK_TRACKERS, true),
             stripTrackingParameters = safeGetBoolean(prefs, KEY_STRIP_TRACKING_PARAMETERS, true),
@@ -225,6 +232,7 @@ object BrowserSettingsStore {
             .putBoolean(KEY_OPEN_LINKS_IN_NEW_TAB, state.openLinksInNewTab)
             .putBoolean(KEY_PRIVATE_BROWSING, state.privateBrowsingEnabled)
             .putBoolean(KEY_BLOCK_ALL_COOKIES, state.blockAllCookies)
+            .putBoolean(KEY_BLOCK_THIRD_PARTY_COOKIES, state.blockThirdPartyCookies)
             .putBoolean(KEY_DO_NOT_TRACK, state.sendDoNotTrack)
             .putBoolean(KEY_BLOCK_TRACKERS, state.blockTrackers)
             .putBoolean(KEY_STRIP_TRACKING_PARAMETERS, state.stripTrackingParameters)

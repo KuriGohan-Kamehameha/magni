@@ -51,4 +51,5 @@ dependencies {
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     implementation("androidx.security:security-crypto:1.0.0")
     implementation("com.google.code.findbugs:jsr305:3.0.2")
+    testImplementation("junit:junit:4.13.2")
 }

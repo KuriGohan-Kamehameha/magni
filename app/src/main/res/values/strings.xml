@@ -143,6 +143,8 @@
     <string name="settings_open_links_new_tab">Open tapped links in new tab</string>
     <string name="settings_private_mode">Private browsing mode</string>
     <string name="settings_block_all_cookies">Block all cookies</string>
+    <string name="settings_block_third_party_cookies">Block third-party cookies</string>
+    <string name="settings_cookie_controls_hint">Blocks cross-site cookie storage by default while still allowing first-party logins when all-cookie blocking is off.</string>
     <string name="settings_do_not_track">Send Do Not Track and Global Privacy Control</string>
     <string name="settings_block_trackers">Block known trackers</string>
     <string name="settings_section_privacy_shield">Privacy Shield</string>

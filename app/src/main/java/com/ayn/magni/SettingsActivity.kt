@@ -86,6 +86,7 @@ class SettingsActivity : AppCompatActivity() {
         refreshHistoryData()
         refreshBookmarksData()
         configureFilters()
+        configurePrivacyControls()
         renderHistory()
         renderBookmarks()
         configureActions()
@@ -198,11 +199,13 @@ class SettingsActivity : AppCompatActivity() {
         binding.openLinksInNewTabSwitch.isChecked = prefs.openLinksInNewTab
         binding.privateModeSwitch.isChecked = prefs.privateBrowsingEnabled
         binding.blockAllCookiesSwitch.isChecked = prefs.blockAllCookies
+        binding.blockThirdPartyCookiesSwitch.isChecked = prefs.blockThirdPartyCookies
         binding.doNotTrackSwitch.isChecked = prefs.sendDoNotTrack
         binding.blockTrackersSwitch.isChecked = prefs.blockTrackers
         binding.stripTrackingParamsSwitch.isChecked = prefs.stripTrackingParameters
         binding.httpsOnlyModeSwitch.isChecked = prefs.httpsOnlyMode
         binding.clearDataOnExitSwitch.isChecked = prefs.clearBrowsingDataOnExit
+        syncCookieControlState()
     }
 
     private fun configureActions() {
@@ -286,6 +289,27 @@ class SettingsActivity : AppCompatActivity() {
             uiHandler.removeCallbacks(renderBookmarksRunnable)
             uiHandler.postDelayed(renderBookmarksRunnable, FILTER_RENDER_DEBOUNCE_MS)
         }
+    }
+
+    private fun configurePrivacyControls() {
+        binding.privateModeSwitch.setOnCheckedChangeListener { _, _ ->
+            syncCookieControlState()
+        }
+        binding.blockAllCookiesSwitch.setOnCheckedChangeListener { _, _ ->
+            syncCookieControlState()
+        }
+    }
+
+    private fun syncCookieControlState() {
+        val privateMode = binding.privateModeSwitch.isChecked
+        val blockAllCookies = binding.blockAllCookiesSwitch.isChecked
+
+        binding.blockAllCookiesSwitch.isEnabled = !privateMode
+        binding.blockAllCookiesSwitch.alpha = if (privateMode) DISABLED_CONTROL_ALPHA else 1f
+
+        binding.blockThirdPartyCookiesSwitch.isEnabled = !privateMode && !blockAllCookies
+        binding.blockThirdPartyCookiesSwitch.alpha =
+            if (binding.blockThirdPartyCookiesSwitch.isEnabled) 1f else DISABLED_CONTROL_ALPHA
     }
 
     private fun renderHistory() {
@@ -619,6 +643,7 @@ class SettingsActivity : AppCompatActivity() {
             openLinksInNewTab = binding.openLinksInNewTabSwitch.isChecked,
             privateBrowsingEnabled = binding.privateModeSwitch.isChecked,
             blockAllCookies = binding.blockAllCookiesSwitch.isChecked,
+            blockThirdPartyCookies = binding.blockThirdPartyCookiesSwitch.isChecked,
             sendDoNotTrack = binding.doNotTrackSwitch.isChecked,
             blockTrackers = binding.blockTrackersSwitch.isChecked,
             stripTrackingParameters = binding.stripTrackingParamsSwitch.isChecked,
@@ -694,5 +719,6 @@ class SettingsActivity : AppCompatActivity() {
         const val EXTRA_OPEN_URL = "open_url"
         const val EXTRA_CLEAR_BROWSING_DATA_NOW = "clear_browsing_data_now"
         private const val FILTER_RENDER_DEBOUNCE_MS = 120L
+        private const val DISABLED_CONTROL_ALPHA = 0.55f
     }
 }

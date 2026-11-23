@@ -194,6 +194,21 @@
                 android:textColor="@color/retro_text" />
 
             <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/blockThirdPartyCookiesSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_block_third_party_cookies"
+                android:textColor="@color/retro_text" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="@string/settings_cookie_controls_hint"
+                android:textColor="@color/retro_muted"
+                android:textSize="10sp" />
+
+            <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/doNotTrackSwitch"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
